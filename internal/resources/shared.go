@@ -1646,6 +1646,11 @@ func deployedModelFingerprint(ctx context.Context, client *apigateway.Client, ap
 			entries = append(entries, modelEntry{Name: name, Schema: *m.Schema})
 			continue
 		}
+		// Strip fields that API Gateway adds automatically (e.g., "format": "int32"
+		// on integer properties) but which the provider's generator doesn't produce.
+		// Without this, the fingerprint of deployed models will never match the expected
+		// fingerprint, causing perpetual drift detection.
+		stripAPIGatewayAddedFields(schemaMap)
 		normalized, _ := json.Marshal(schemaMap)
 		entries = append(entries, modelEntry{Name: name, Schema: string(normalized)})
 	}
@@ -1661,6 +1666,23 @@ func deployedModelFingerprint(ctx context.Context, client *apigateway.Client, ap
 	}
 	h := sha256.Sum256(b)
 	return fmt.Sprintf("%x", h[:8]), nil
+}
+
+// stripAPIGatewayAddedFields removes fields that API Gateway adds to model schemas
+// during PutRestApi but which the provider's generator doesn't produce.
+// For example, API Gateway adds "format": "int32" to integer properties.
+func stripAPIGatewayAddedFields(schema map[string]interface{}) {
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for _, propVal := range props {
+		propMap, ok := propVal.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		delete(propMap, "format")
+	}
 }
 
 // expectedDeployedModelFingerprint computes the same canonical hash that deployedModelFingerprint

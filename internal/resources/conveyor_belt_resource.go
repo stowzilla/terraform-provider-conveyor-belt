@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/apigateway"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -568,6 +571,42 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		state.GatewayHashes.ElementsAs(ctx, &oldGatewayHashes, false)
 	}
 
+	// Post-import detection: if hashes and lambda_functions are both empty,
+	// this is likely the first plan after import. Discover existing resources
+	// from AWS so we can correctly classify them as UPDATE rather than CREATE.
+	var oldLambdaARNs map[string]string
+	if !state.LambdaFunctions.IsNull() && !state.LambdaFunctions.IsUnknown() {
+		oldLambdaARNs = make(map[string]string)
+		state.LambdaFunctions.ElementsAs(ctx, &oldLambdaARNs, false)
+	}
+	var oldGatewayIDs map[string]string
+	if !state.ApiGatewayIds.IsNull() && !state.ApiGatewayIds.IsUnknown() {
+		oldGatewayIDs = make(map[string]string)
+		state.ApiGatewayIds.ElementsAs(ctx, &oldGatewayIDs, false)
+	}
+
+	postImportState := false
+	if len(oldLambdaHashes) == 0 && len(oldLambdaARNs) == 0 && r.providerConfig != nil {
+		// Initialize AWS clients for post-import discovery
+		planConfig := &DispatcherConfig{
+			Environment: r.providerConfig.Environment,
+			AwsRegion:   r.providerConfig.AwsRegion,
+			AppName:     plan.AppName.ValueString(),
+		}
+		if err := r.initializeManagers(ctx, planConfig); err == nil {
+			tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Post-import state detected, discovering existing resources from AWS")
+			prefix := fmt.Sprintf("%s-%s-", plan.AppName.ValueString(), r.providerConfig.Environment)
+			oldLambdaARNs, oldGatewayIDs = r.discoverManagedResources(ctx, prefix, lambdas, gateways)
+		} else {
+			tflog.Warn(ctx, "[CONVEYOR-BELT_PLAN] Failed to initialize AWS clients for import discovery", map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+		// After import, hash inputs may not be stable (no prior state to compare against).
+		// Mark hashes as unknown so Terraform defers consistency checks until apply.
+		postImportState = true
+	}
+
 	// Calculate new gateway hashes to determine which gateways will be updated
 	var planFrontendUrls []string
 	if !plan.FrontendUrls.IsNull() && !plan.FrontendUrls.IsUnknown() {
@@ -582,17 +621,26 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	}
 	var lambdasAdded, lambdasRemoved []string
 	for _, newLambda := range lambdas {
-		if _, exists := oldLambdaHashes[newLambda]; !exists {
+		// A lambda is "new" only if it has no hash in state AND no ARN in lambda_functions.
+		// After import, hashes are empty but lambda_functions is populated by discovery.
+		_, hasHash := oldLambdaHashes[newLambda]
+		if !hasHash {
 			lambdasAdded = append(lambdasAdded, newLambda)
 		}
 	}
-	// Check both lambda_hashes AND lambda_functions for removed lambdas.
-	// After a partial failure, a lambda may be gone from hashes but still in lambda_functions.
-	var oldLambdaARNs map[string]string
-	if !state.LambdaFunctions.IsNull() && !state.LambdaFunctions.IsUnknown() {
-		oldLambdaARNs = make(map[string]string)
-		state.LambdaFunctions.ElementsAs(ctx, &oldLambdaARNs, false)
+
+	// If a lambda exists in lambda_functions (discovered from AWS), don't treat it as new.
+	// This handles the post-import case where hashes are empty but resources exist.
+	if len(oldLambdaARNs) > 0 {
+		filtered := lambdasAdded[:0]
+		for _, l := range lambdasAdded {
+			if _, hasARN := oldLambdaARNs[l]; !hasARN {
+				filtered = append(filtered, l)
+			}
+		}
+		lambdasAdded = filtered
 	}
+
 	lambdaRemovedSet := make(map[string]bool)
 	for oldLambda := range oldLambdaHashes {
 		if !newLambdaSet[oldLambda] {
@@ -618,15 +666,19 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 			gatewaysAdded = append(gatewaysAdded, newGateway)
 		}
 	}
-	// Check both gateway_hashes AND api_gateway_ids for removed gateways.
-	// After a partial failure (e.g., gateway deletion failed due to base path mappings),
-	// the gateway may be gone from gateway_hashes but still present in api_gateway_ids.
-	// We need to detect removal from either source to properly mark outputs as unknown.
-	var oldGatewayIDs map[string]string
-	if !state.ApiGatewayIds.IsNull() && !state.ApiGatewayIds.IsUnknown() {
-		oldGatewayIDs = make(map[string]string)
-		state.ApiGatewayIds.ElementsAs(ctx, &oldGatewayIDs, false)
+
+	// If a gateway exists in api_gateway_ids (discovered from AWS), don't treat it as new.
+	// This handles the post-import case where hashes are empty but resources exist.
+	if len(oldGatewayIDs) > 0 {
+		filtered := gatewaysAdded[:0]
+		for _, g := range gatewaysAdded {
+			if _, hasID := oldGatewayIDs[g]; !hasID {
+				filtered = append(filtered, g)
+			}
+		}
+		gatewaysAdded = filtered
 	}
+
 	removedSet := make(map[string]bool)
 	for oldGateway := range oldGatewayHashes {
 		if !newGatewaySet[oldGateway] {
@@ -752,7 +804,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 
 	// Get layer ARNs for hash calculation
 	var layerArns []string
-	hashInputsUnknown := false
+	hashInputsUnknown := postImportState
 	if plan.LambdaLayerArns.IsUnknown() {
 		hashInputsUnknown = true
 		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] LambdaLayerArns is unknown — hash inputs incomplete")
@@ -813,6 +865,20 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 			plan.ApiGatewayIds = types.MapUnknown(types.StringType)
 			plan.ApiGatewayUrls = types.MapUnknown(types.StringType)
 			plan.BasePathMappings = types.MapUnknown(types.StringType)
+		}
+
+		// Post-import: all computed outputs will be populated during apply.
+		// Mark them as unknown so Terraform doesn't reject new values.
+		if postImportState {
+			plan.LambdaFunctions = types.MapUnknown(types.StringType)
+			plan.ApiGatewayIds = types.MapUnknown(types.StringType)
+			plan.ApiGatewayUrls = types.MapUnknown(types.StringType)
+			plan.BasePathMappings = types.MapUnknown(types.StringType)
+			plan.CustomDomainUrl = types.StringUnknown()
+			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+			plan.GatewayHashes = types.MapUnknown(types.StringType)
+			plan.ModelHashes = types.MapUnknown(types.StringType)
+			plan.OpenAPISpecHashes = types.MapUnknown(types.StringType)
 		}
 
 		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
@@ -2015,6 +2081,15 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 	utils.Info(ctx, "Reading dispatcher resource", map[string]interface{}{
 		"id": state.ID.ValueString(),
 	})
+
+	// After import, source is not yet in state (it comes from config on next plan/apply).
+	// Skip route parsing and return state as-is. ModifyPlan will handle resource discovery
+	// once it has access to the parsed routes from the plan config.
+	if state.Source.IsNull() || state.Source.IsUnknown() || state.Source.ValueString() == "" {
+		utils.Info(ctx, "Source is empty (likely post-import), skipping route parsing", nil)
+		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+		return
+	}
 
 	// Re-parse routes and models to get current state
 	schemaSource := ""
@@ -3663,6 +3738,55 @@ After adding the required configuration, run 'terraform plan' to see the current
 The Read operation will discover existing Lambda functions and API Gateways based on the naming convention: %s-%s-{resource_name}`,
 			appName, appName, environment),
 	)
+}
+
+// discoverManagedResources queries AWS to find which of the given lambdas and gateways
+// already exist. Unlike broad prefix discovery, this only checks specific resources
+// that the routes file says should be managed. Returns maps of discovered ARNs and IDs.
+func (r *dispatcherResource) discoverManagedResources(ctx context.Context, prefix string, lambdas []string, gateways []string) (lambdaARNs map[string]string, gatewayIDs map[string]string) {
+	lambdaARNs = make(map[string]string)
+	gatewayIDs = make(map[string]string)
+
+	// Discover Lambda functions by checking each one individually
+	for _, name := range lambdas {
+		functionName := prefix + name
+		getOutput, err := r.clients.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{
+			FunctionName: aws.String(functionName),
+		})
+		if err != nil {
+			// Not found or error — skip
+			continue
+		}
+		if getOutput.Configuration != nil && getOutput.Configuration.FunctionArn != nil {
+			lambdaARNs[name] = *getOutput.Configuration.FunctionArn
+		}
+	}
+
+	// Discover API Gateways by listing all and filtering
+	apisOutput, err := r.clients.ApiGateway.GetRestApis(ctx, &apigateway.GetRestApisInput{
+		Limit: aws.Int32(500),
+	})
+	if err == nil {
+		gatewaySet := make(map[string]bool)
+		for _, g := range gateways {
+			gatewaySet[g] = true
+		}
+		for _, api := range apisOutput.Items {
+			if api.Name != nil && api.Id != nil {
+				shortName := strings.TrimPrefix(*api.Name, prefix)
+				if gatewaySet[shortName] {
+					gatewayIDs[shortName] = *api.Id
+				}
+			}
+		}
+	}
+
+	tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Discovered managed resources from AWS", map[string]interface{}{
+		"lambdas_found":  len(lambdaARNs),
+		"gateways_found": len(gatewayIDs),
+	})
+
+	return lambdaARNs, gatewayIDs
 }
 
 // parseImportID parses the import ID into app_name and environment components.

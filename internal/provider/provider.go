@@ -147,14 +147,21 @@ func (p *dispatcherProvider) DataSources(_ context.Context) []func() datasource.
 
 // Resources defines the resources implemented in the provider.
 // The provider exposes three resource types:
-// - dispatcher: The primary orchestrator resource that manages all infrastructure from routes.tf.rb
-// - dispatcher_lambda: Manages individual Lambda functions (for advanced users who need fine-grained control)
-// - dispatcher_gateway: Manages individual API Gateways (for advanced users who need fine-grained control)
+// - conveyor_belt: The primary orchestrator resource that manages all infrastructure from routes.tf.rb
+// - conveyor_belt_lambda: Manages individual Lambda functions (for advanced users who need fine-grained control)
+// - conveyor_belt_gateway: Manages individual API Gateways (for advanced users who need fine-grained control)
+//
+// Legacy aliases (dispatcher, dispatcher_lambda, dispatcher_gateway) are registered
+// to support terraform state mv during migration. Remove after all environments are migrated.
 func (p *dispatcherProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		resources.NewDispatcherResource,
 		resources.NewLambdaResource,
 		resources.NewGatewayResource,
+		// Legacy aliases for migration (see CONVEYOR_BELT_RENAME_MIGRATION.md)
+		resources.NewDispatcherAliasResource,
+		resources.NewLambdaAliasResource,
+		resources.NewGatewayAliasResource,
 	}
 }
 
