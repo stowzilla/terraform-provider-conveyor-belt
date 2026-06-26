@@ -171,9 +171,27 @@ func (pb *PackageBuilder) BuildPackages(ctx context.Context, lambdaNames []strin
 	return results
 }
 
+// resolveGemfilePath finds the Gemfile, checking sourceDir first then the project root (parent dir).
+func (pb *PackageBuilder) resolveGemfilePath() string {
+	candidate := filepath.Join(pb.sourceDir, "Gemfile")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	candidate = filepath.Join(filepath.Dir(pb.sourceDir), "Gemfile")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return filepath.Join(pb.sourceDir, "Gemfile")
+}
+
+// resolveGemfileLockPath finds the Gemfile.lock alongside the resolved Gemfile.
+func (pb *PackageBuilder) resolveGemfileLockPath() string {
+	return filepath.Join(filepath.Dir(pb.resolveGemfilePath()), "Gemfile.lock")
+}
+
 // buildSharedGems runs Docker once to install gems, returns path to vendor directory
 func (pb *PackageBuilder) buildSharedGems(ctx context.Context) (string, error) {
-	gemfilePath := filepath.Join(pb.sourceDir, "Gemfile")
+	gemfilePath := pb.resolveGemfilePath()
 
 	// Create a temporary directory for the shared gem build
 	sharedBuildDir, err := os.MkdirTemp("", "dispatcher-gems-*")
@@ -187,7 +205,7 @@ func (pb *PackageBuilder) buildSharedGems(ctx context.Context) (string, error) {
 			os.RemoveAll(sharedBuildDir)
 			return "", fmt.Errorf("failed to copy Gemfile: %w", err)
 		}
-		lockfilePath := filepath.Join(pb.sourceDir, "Gemfile.lock")
+		lockfilePath := pb.resolveGemfileLockPath()
 		if _, err := os.Stat(lockfilePath); err == nil {
 			if err := pb.copyFile(lockfilePath, filepath.Join(sharedBuildDir, "Gemfile.lock")); err != nil {
 				os.RemoveAll(sharedBuildDir)
@@ -392,7 +410,7 @@ func (pb *PackageBuilder) buildSinglePackageWithSharedGems(ctx context.Context, 
 func (pb *PackageBuilder) buildSinglePackage(ctx context.Context, lambda string) ([]byte, error) {
 	rubyFileName := fmt.Sprintf("%s.rb", lambda)
 	rubyFilePath := filepath.Join(pb.sourceDir, rubyFileName)
-	gemfilePath := filepath.Join(pb.sourceDir, "Gemfile")
+	gemfilePath := pb.resolveGemfilePath()
 
 	// Check if actual Ruby file exists
 	rubyFileExists := false
@@ -466,7 +484,7 @@ func (pb *PackageBuilder) buildSinglePackage(ctx context.Context, lambda string)
 		if err := pb.copyFile(gemfilePath, filepath.Join(buildDir, "Gemfile")); err != nil {
 			return nil, fmt.Errorf("failed to copy Gemfile: %w", err)
 		}
-		lockfilePath := filepath.Join(pb.sourceDir, "Gemfile.lock")
+		lockfilePath := pb.resolveGemfileLockPath()
 		if _, err := os.Stat(lockfilePath); err == nil {
 			if err := pb.copyFile(lockfilePath, filepath.Join(buildDir, "Gemfile.lock")); err != nil {
 				return nil, fmt.Errorf("failed to copy Gemfile.lock: %w", err)
