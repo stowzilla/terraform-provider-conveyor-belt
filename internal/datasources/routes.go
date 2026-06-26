@@ -4,7 +4,9 @@ package datasources
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -22,9 +24,7 @@ func NewRoutesDataSource() datasource.DataSource {
 }
 
 // routesDataSource is the data source implementation.
-type routesDataSource struct {
-	rubyScriptPath            string
-}
+type routesDataSource struct{}
 
 // routesDataSourceModel maps the data source schema data.
 type routesDataSourceModel struct {
@@ -43,7 +43,7 @@ type routeModel struct {
 	Tables  []types.String `tfsdk:"tables"`
 }
 
-// Route represents the JSON structure from list_routes.rb
+// Route represents the JSON structure from belt routes
 type Route struct {
 	Name    string   `json:"name"`
 	Verb    string   `json:"verb"`
@@ -116,22 +116,9 @@ func (d *routesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 
 // Configure prepares the data source.
 func (d *routesDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	// Extract provider configuration - define interface here to avoid circular import
-	if client, ok := req.ProviderData.(interface {
-		GetRubyScriptPath() string
-	}); ok {
-		d.rubyScriptPath = client.GetRubyScriptPath()
-	} else {
-		// Fallback to default
-		d.rubyScriptPath = "../../scripts/list_routes.rb"
-	}
 }
 
-// Read executes the list_routes.rb script and parses the JSON output.
+// Read executes `belt routes -f json` and parses the JSON output.
 func (d *routesDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var config routesDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
@@ -139,14 +126,27 @@ func (d *routesDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	// Execute list_routes.rb script
-	cmd := exec.Command(d.rubyScriptPath, config.Source.ValueString())
-	
+	// Derive project root from the source file path
+	absSource := config.Source.ValueString()
+	if !filepath.IsAbs(absSource) {
+		if wd, err := os.Getwd(); err == nil {
+			absSource = filepath.Join(wd, absSource)
+		}
+	}
+	projectRoot := filepath.Dir(filepath.Dir(absSource))
+
+	cmd := exec.Command("belt", "routes", "-f", "json")
+	cmd.Dir = projectRoot
+
 	output, err := cmd.Output()
 	if err != nil {
+		errMsg := "Could not run belt routes: " + err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			errMsg += "\nstderr: " + string(exitErr.Stderr)
+		}
 		resp.Diagnostics.AddError(
-			"Failed to execute list_routes.rb",
-			"Could not run the Ruby script: "+err.Error(),
+			"Failed to execute belt routes",
+			errMsg,
 		)
 		return
 	}
@@ -157,7 +157,7 @@ func (d *routesDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Failed to parse JSON",
-			"Could not parse route data from script output: "+err.Error(),
+			"Could not parse route data from belt routes output: "+err.Error(),
 		)
 		return
 	}

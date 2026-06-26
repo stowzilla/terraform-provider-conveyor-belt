@@ -27,7 +27,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"terraform-provider-conveyor-belt/internal/embedded"
 	"terraform-provider-conveyor-belt/internal/utils"
 )
 
@@ -39,7 +38,6 @@ type DispatcherConfig struct {
 	AwsAccountId              string
 	CognitoUserPoolArns       []string
 	FrontendUrls              []string
-	RubyScriptPath            string
 	LambdaSourceDir           string
 	LambdaConfig              map[string]interface{}
 	SharedIamPolicyArns       []string
@@ -128,44 +126,12 @@ type LambdaAlarmConfig struct {
 
 // DispatcherClient holds provider configuration (compatible with provider.DispatcherClient)
 type DispatcherClient struct {
-	Environment               string
-	AwsRegion                 string
-	RubyScriptPath            string
-	EmbeddedScriptsDir        string
-	DefaultLambdaTimeout      int64
-	DefaultLambdaMemory       int64
-	DefaultTags               map[string]string
-	DockerBuildConcurrency    int
-}
-
-// Cleanup removes the extracted embedded scripts directory if one was created.
-func (c *DispatcherClient) Cleanup() error {
-	if c.EmbeddedScriptsDir != "" {
-		return embedded.Cleanup(c.EmbeddedScriptsDir)
-	}
-	return nil
-}
-
-// EnsureScriptsIntact re-extracts embedded scripts if macOS purged the temp files.
-// Returns the (possibly updated) ruby script path.
-func (c *DispatcherClient) EnsureScriptsIntact() string {
-	if c.EmbeddedScriptsDir == "" {
-		return c.RubyScriptPath // custom path, nothing to check
-	}
-	if _, err := os.Stat(c.RubyScriptPath); err == nil {
-		return c.RubyScriptPath // file still exists
-	}
-	// Re-extract and update paths
-	if dir, err := embedded.ExtractScripts(); err == nil {
-		c.EmbeddedScriptsDir = dir
-		c.RubyScriptPath = embedded.ScriptPath(dir, "list_routes.rb")
-	}
-	return c.RubyScriptPath
-}
-
-// GetRubyScriptPath returns the Ruby script path for the data source.
-func (c *DispatcherClient) GetRubyScriptPath() string {
-	return c.EnsureScriptsIntact()
+	Environment            string
+	AwsRegion              string
+	DefaultLambdaTimeout   int64
+	DefaultLambdaMemory    int64
+	DefaultTags            map[string]string
+	DockerBuildConcurrency int
 }
 
 // GetCORSOriginForConfig returns the CORS origin for DispatcherConfig
@@ -210,7 +176,7 @@ type ResourceClients struct {
 	SQS            *sqs.Client
 }
 
-// RouteData represents the JSON structure returned by the Ruby script
+// RouteData represents the JSON structure returned by `belt routes -f json`
 type RouteData struct {
 	Routes []struct {
 		Name          string   `json:"name"`
@@ -289,39 +255,25 @@ func getAwsAccountId(ctx context.Context, region string) (string, error) {
 	return *result.Account, nil
 }
 
-// executeRubyScript executes the Ruby script and returns parsed routes
-func executeRubyScript(ctx context.Context, rubyScriptPath, source string) ([]utils.Route, error) {
-	routes, _, err := executeRubyScriptWithModels(ctx, rubyScriptPath, source)
+// executeBeltRoutes executes `belt routes -f json` and returns parsed routes.
+func executeBeltRoutes(ctx context.Context, source string) ([]utils.Route, error) {
+	routes, _, err := executeBeltRoutesWithSchema(ctx, source, "")
 	return routes, err
 }
 
-// executeRubyScriptWithModels executes the Ruby script and returns both routes and model definitions.
-func executeRubyScriptWithModels(ctx context.Context, rubyScriptPath, source string) ([]utils.Route, []utils.ModelDefinition, error) {
-	return executeRubyScriptWithOptions(ctx, rubyScriptPath, source, "")
-}
+// executeBeltRoutesWithSchema executes `belt routes -f json` with an explicit --schema path.
+func executeBeltRoutesWithSchema(ctx context.Context, source, schemaPath string) ([]utils.Route, []utils.ModelDefinition, error) {
+	// Verify belt is installed
+	if _, err := exec.LookPath("belt"); err != nil {
+		return nil, nil, fmt.Errorf("belt CLI not found in PATH. Install with: gem install belt")
+	}
 
-// executeRubyScriptWithSchema executes the Ruby script with an explicit --schema path.
-func executeRubyScriptWithSchema(ctx context.Context, rubyScriptPath, source, schemaPath string) ([]utils.Route, []utils.ModelDefinition, error) {
-	return executeRubyScriptWithOptions(ctx, rubyScriptPath, source, schemaPath)
-}
-
-// executeRubyScriptWithOptions executes the Ruby script with optional schema path.
-func executeRubyScriptWithOptions(ctx context.Context, rubyScriptPath, source, schemaPath string) ([]utils.Route, []utils.ModelDefinition, error) {
-	utils.Info(ctx, "Executing Ruby script", map[string]interface{}{
-		"script_path": rubyScriptPath,
+	utils.Info(ctx, "Executing belt routes", map[string]interface{}{
 		"source":      source,
 		"schema_path": schemaPath,
 	})
 
-	// Resolve absolute paths to avoid working directory issues
-	absScriptPath := rubyScriptPath
-	if !filepath.IsAbs(rubyScriptPath) {
-		wd, err := os.Getwd()
-		if err == nil {
-			absScriptPath = filepath.Join(wd, rubyScriptPath)
-		}
-	}
-
+	// Resolve absolute path for the source file
 	absSource := source
 	if !filepath.IsAbs(source) {
 		wd, err := os.Getwd()
@@ -330,7 +282,11 @@ func executeRubyScriptWithOptions(ctx context.Context, rubyScriptPath, source, s
 		}
 	}
 
-	args := []string{absScriptPath, absSource}
+	// Derive project root from the routes file path.
+	// Convention: routes file is at <project_root>/infrastructure/routes.tf.rb
+	projectRoot := filepath.Dir(filepath.Dir(absSource))
+
+	args := []string{"routes", "-f", "json"}
 	if schemaPath != "" {
 		absSchema := schemaPath
 		if !filepath.IsAbs(schemaPath) {
@@ -342,7 +298,8 @@ func executeRubyScriptWithOptions(ctx context.Context, rubyScriptPath, source, s
 		args = append(args, "--schema", absSchema)
 	}
 
-	cmd := exec.Command("ruby", args...)
+	cmd := exec.Command("belt", args...)
+	cmd.Dir = projectRoot
 	cmd.Env = os.Environ()
 
 	var stderr bytes.Buffer
@@ -351,18 +308,17 @@ func executeRubyScriptWithOptions(ctx context.Context, rubyScriptPath, source, s
 	output, err := cmd.Output()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			utils.Error(ctx, "Ruby script failed", map[string]interface{}{
+			utils.Error(ctx, "belt routes failed", map[string]interface{}{
 				"stderr":      string(exitError.Stderr),
-				"script_path": absScriptPath,
 				"source":      absSource,
 			})
 		}
-		return nil, nil, fmt.Errorf("failed to execute Ruby script at %s with source %s: %w", absScriptPath, absSource, err)
+		return nil, nil, fmt.Errorf("failed to execute belt routes with source %s: %w\nstderr: %s", absSource, err, stderr.String())
 	}
 
-	// Log any stderr warnings from the Ruby script (e.g., schema loading failures)
+	// Log any stderr warnings
 	if stderr.Len() > 0 {
-		utils.Warn(ctx, "Ruby script produced warnings", map[string]interface{}{
+		utils.Warn(ctx, "belt routes produced warnings", map[string]interface{}{
 			"stderr": stderr.String(),
 			"source": absSource,
 		})

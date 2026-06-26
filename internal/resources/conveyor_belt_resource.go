@@ -25,7 +25,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
-	"terraform-provider-conveyor-belt/internal/embedded"
 	"terraform-provider-conveyor-belt/internal/utils"
 )
 
@@ -408,13 +407,12 @@ func (r *dispatcherResource) Configure(_ context.Context, req resource.Configure
 
 	// Store the provider configuration including defaults
 	r.providerConfig = &DispatcherConfig{
-		Environment:               client.Environment,
-		AwsRegion:                 client.AwsRegion,
-		RubyScriptPath:            client.RubyScriptPath,
-		DefaultLambdaTimeout:      client.DefaultLambdaTimeout,
-		DefaultLambdaMemory:       client.DefaultLambdaMemory,
-		DefaultTags:               client.DefaultTags,
-		DockerBuildConcurrency:    client.DockerBuildConcurrency,
+		Environment:            client.Environment,
+		AwsRegion:              client.AwsRegion,
+		DefaultLambdaTimeout:   client.DefaultLambdaTimeout,
+		DefaultLambdaMemory:    client.DefaultLambdaMemory,
+		DefaultTags:            client.DefaultTags,
+		DockerBuildConcurrency: client.DockerBuildConcurrency,
 	}
 }
 
@@ -474,9 +472,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		return
 	}
 
-	tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Starting change detection", map[string]interface{}{
-		"ruby_script_path": r.providerConfig.RubyScriptPath,
-	})
+	tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Starting change detection", map[string]interface{}{})
 
 	var plan, state DispatcherResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -1168,7 +1164,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		}
 	}
 
-	// Generate OpenAPI specs and embedded scripts as a read-only side effect during plan.
+	// Generate OpenAPI specs as a read-only side effect during plan.
 	// This lets agents and tools inspect the specs without running a full deploy.
 	r.generateSpecsDuringPlan(ctx, &plan, &state, routes, models)
 }
@@ -1195,15 +1191,14 @@ func (r *dispatcherResource) initializeManagers(ctx context.Context, config *Dis
 // buildConfigFromModel builds a DispatcherConfig from the resource model
 func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *DispatcherResourceModel) (*DispatcherConfig, error) {
 	config := &DispatcherConfig{
-		Environment:               r.providerConfig.Environment,
-		AwsRegion:                 r.providerConfig.AwsRegion,
-		RubyScriptPath:            r.rubyScriptPath(),
-		DefaultLambdaTimeout:      r.providerConfig.DefaultLambdaTimeout,
-		DefaultLambdaMemory:       r.providerConfig.DefaultLambdaMemory,
-		DefaultTags:               r.providerConfig.DefaultTags,
-		DockerBuildConcurrency:    r.providerConfig.DockerBuildConcurrency,
-		AppName:                   model.AppName.ValueString(),
-		LambdaSourceDir:           model.LambdaSourceDir.ValueString(),
+		Environment:            r.providerConfig.Environment,
+		AwsRegion:              r.providerConfig.AwsRegion,
+		DefaultLambdaTimeout:   r.providerConfig.DefaultLambdaTimeout,
+		DefaultLambdaMemory:    r.providerConfig.DefaultLambdaMemory,
+		DefaultTags:            r.providerConfig.DefaultTags,
+		DockerBuildConcurrency: r.providerConfig.DockerBuildConcurrency,
+		AppName:                model.AppName.ValueString(),
+		LambdaSourceDir:        model.LambdaSourceDir.ValueString(),
 	}
 
 	// Get AWS account ID
@@ -1329,25 +1324,15 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 }
 
 
-// rubyScriptPath returns the current ruby script path, re-extracting embedded scripts if needed.
-func (r *dispatcherResource) rubyScriptPath() string {
-	if r.client != nil {
-		return r.client.EnsureScriptsIntact()
-	}
-	return r.providerConfig.RubyScriptPath
-}
-
-// parseRoutes executes the Ruby script to parse routes from the source file
+// parseRoutes executes belt routes and returns parsed routes
 func (r *dispatcherResource) parseRoutes(ctx context.Context, source string) ([]utils.Route, error) {
-	return executeRubyScript(ctx, r.rubyScriptPath(), source)
+	return executeBeltRoutes(ctx, source)
 }
 
-// parseRoutesAndModels executes the Ruby script and returns both routes and model definitions.
+// parseRoutesAndModels executes belt routes and returns both routes and model definitions.
 // If schemaSource is provided, it parses models from that file; otherwise auto-detects
 // schema.tf.rb in the same directory as the routes source file.
 func (r *dispatcherResource) parseRoutesAndModels(ctx context.Context, source, schemaSource string) ([]utils.Route, []utils.ModelDefinition, error) {
-	scriptPath := r.rubyScriptPath()
-
 	// Determine schema path: explicit config, or auto-detect from routes file directory
 	schemaPath := schemaSource
 	if schemaPath == "" {
@@ -1363,8 +1348,7 @@ func (r *dispatcherResource) parseRoutesAndModels(ctx context.Context, source, s
 		}
 	}
 
-	// Execute Ruby script with explicit --schema flag so it reliably finds the schema
-	routes, models, err := executeRubyScriptWithSchema(ctx, scriptPath, source, schemaPath)
+	routes, models, err := executeBeltRoutesWithSchema(ctx, source, schemaPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1693,9 +1677,7 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	// Ensure embedded scripts temp directory is cleaned up after this operation
 	if r.client != nil {
-		defer r.client.Cleanup()
 	}
 
 	// Build configuration from model
@@ -1916,8 +1898,6 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 	// change deployment behavior. The imperative path above is still the active deployer.
 	openAPISpecHashes := r.generateOpenAPISpecsSideEffect(ctx, routes, lambdaARNs, models, config)
 
-	// Write embedded scripts to stable location for external deploy tools
-	r.writeEmbeddedScripts(ctx, config)
 
 	// Step 8: Populate computed outputs
 	plan.ID = types.StringValue(fmt.Sprintf("%s-%s", config.AppName, config.Environment))
@@ -2055,8 +2035,6 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	// NOTE: Do NOT clean up embedded scripts here. Read runs during plan,
-	// and ModifyPlan needs the scripts immediately after. Cleanup happens
 	// in Create/Update/Delete or by the OS via os.TempDir().
 
 	// Build configuration from model
@@ -2410,9 +2388,7 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	// Ensure embedded scripts temp directory is cleaned up after this operation
 	if r.client != nil {
-		defer r.client.Cleanup()
 	}
 
 	// Build configuration from plan
@@ -3051,8 +3027,6 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 	// This prevents "inconsistent result after apply" errors when only lambda source changes.
 	openAPISpecHashes := r.generateOpenAPISpecsSideEffect(ctx, routes, lambdaARNs, models, config)
 
-	// Write embedded scripts to stable location for external deploy tools
-	r.writeEmbeddedScripts(ctx, config)
 
 	if !plan.OpenAPISpecHashes.IsNull() {
 		// Merge: replace unknown elements with computed values, keep known elements
@@ -3258,23 +3232,6 @@ func (r *dispatcherResource) detectLambdaUpdateTasks(
 	return toCreate, updateTasks, toDelete
 }
 
-// writeEmbeddedScripts copies the embedded Ruby scripts to .conveyor-belt/scripts/
-// so external deploy tools can reference them at a stable path instead of the
-// provider's temp directory (which macOS periodically purges).
-func (r *dispatcherResource) writeEmbeddedScripts(ctx context.Context, config *DispatcherConfig) {
-	projectRoot := filepath.Dir(config.LambdaSourceDir)
-	scriptsDir := filepath.Join(projectRoot, ".conveyor-belt", "scripts")
-	if err := embedded.WriteScriptsTo(scriptsDir); err != nil {
-		utils.Warn(ctx, "Failed to write embedded scripts to .conveyor-belt/scripts/", map[string]interface{}{
-			"dir": scriptsDir, "error": err.Error(),
-		})
-		return
-	}
-	utils.Info(ctx, "Wrote embedded scripts to stable location", map[string]interface{}{
-		"dir": scriptsDir,
-	})
-}
-
 // generateOpenAPISpecsSideEffect generates OpenAPI specs for all gateways as a
 // read-only side effect (Phase 1). It logs the specs at DEBUG level and returns
 // a map of gateway name → spec hash for storage in state. Errors are logged as
@@ -3347,7 +3304,7 @@ func (r *dispatcherResource) generateOpenAPISpecsSideEffect(
 	return hashes
 }
 
-// generateSpecsDuringPlan generates OpenAPI specs and embedded scripts as a
+// generateSpecsDuringPlan generates OpenAPI specs as a
 // read-only side effect during terraform plan. This lets agents and tools
 // inspect the generated specs without running a full deploy.
 // Uses Lambda ARNs from state if available, otherwise the generator constructs
@@ -3425,11 +3382,7 @@ func (r *dispatcherResource) generateSpecsDuringPlan(
 		os.WriteFile(filepath.Join(specDir, gw+".json"), data, 0644)
 	}
 
-	// Also write embedded scripts
-	scriptsDir := filepath.Join(projectRoot, ".conveyor-belt", "scripts")
-	embedded.WriteScriptsTo(scriptsDir)
-
-	tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Wrote OpenAPI specs and scripts to .conveyor-belt/", map[string]interface{}{
+	tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Wrote OpenAPI specs to .conveyor-belt/", map[string]interface{}{
 		"output_dir":    specDir,
 		"gateway_count": len(specs),
 	})
@@ -3443,9 +3396,7 @@ func (r *dispatcherResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	// Ensure embedded scripts temp directory is cleaned up after this operation
 	if r.client != nil {
-		defer r.client.Cleanup()
 	}
 
 	// Build configuration from model
