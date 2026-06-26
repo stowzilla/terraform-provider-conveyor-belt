@@ -187,10 +187,9 @@ func (r *gatewayResource) Configure(_ context.Context, req resource.ConfigureReq
 
 	// Store the provider configuration including defaults for later use
 	r.providerConfig = &DispatcherConfig{
-		Environment:               client.Environment,
-		AwsRegion:                 client.AwsRegion,
-		RubyScriptPath:            client.EnsureScriptsIntact(),
-		DefaultTags:               client.DefaultTags,
+		Environment: client.Environment,
+		AwsRegion:   client.AwsRegion,
+		DefaultTags: client.DefaultTags,
 	}
 }
 
@@ -215,10 +214,9 @@ func (r *gatewayResource) initializeManagers(ctx context.Context, config *Dispat
 // buildConfigFromModel builds a DispatcherConfig from the resource model
 func (r *gatewayResource) buildConfigFromModel(ctx context.Context, model *GatewayResourceModel) (*DispatcherConfig, error) {
 	config := &DispatcherConfig{
-		Environment:    r.providerConfig.Environment,
-		AwsRegion:      r.providerConfig.AwsRegion,
-		RubyScriptPath: r.providerConfig.RubyScriptPath,
-		AppName:        model.AppName.ValueString(),
+		Environment: r.providerConfig.Environment,
+		AwsRegion:   r.providerConfig.AwsRegion,
+		AppName:     model.AppName.ValueString(),
 	}
 
 	// Get AWS account ID

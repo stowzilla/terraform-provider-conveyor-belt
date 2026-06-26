@@ -200,13 +200,12 @@ func (r *lambdaResource) Configure(_ context.Context, req resource.ConfigureRequ
 
 	// Store the provider configuration including defaults for later use
 	r.providerConfig = &DispatcherConfig{
-		Environment:               client.Environment,
-		AwsRegion:                 client.AwsRegion,
-		RubyScriptPath:            client.EnsureScriptsIntact(),
-		DefaultLambdaTimeout:      client.DefaultLambdaTimeout,
-		DefaultLambdaMemory:       client.DefaultLambdaMemory,
-		DefaultTags:               client.DefaultTags,
-		DockerBuildConcurrency:    client.DockerBuildConcurrency,
+		Environment:            client.Environment,
+		AwsRegion:              client.AwsRegion,
+		DefaultLambdaTimeout:   client.DefaultLambdaTimeout,
+		DefaultLambdaMemory:    client.DefaultLambdaMemory,
+		DefaultTags:            client.DefaultTags,
+		DockerBuildConcurrency: client.DockerBuildConcurrency,
 	}
 }
 
@@ -295,10 +294,9 @@ func (r *lambdaResource) initializeManagers(ctx context.Context, config *Dispatc
 // buildConfigFromModel builds a DispatcherConfig from the resource model
 func (r *lambdaResource) buildConfigFromModel(ctx context.Context, model *LambdaResourceModel) (*DispatcherConfig, error) {
 	config := &DispatcherConfig{
-		Environment:    r.providerConfig.Environment,
-		AwsRegion:      r.providerConfig.AwsRegion,
-		RubyScriptPath: r.providerConfig.RubyScriptPath,
-		AppName:        model.AppName.ValueString(),
+		Environment:     r.providerConfig.Environment,
+		AwsRegion:       r.providerConfig.AwsRegion,
+		AppName:         model.AppName.ValueString(),
 		LambdaSourceDir: model.SourceDir.ValueString(),
 	}
 

@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"terraform-provider-conveyor-belt/internal/datasources"
-	"terraform-provider-conveyor-belt/internal/embedded"
 	"terraform-provider-conveyor-belt/internal/resources"
 )
 
@@ -48,7 +47,7 @@ func (p *dispatcherProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 			},
 			"ruby_script_path": schema.StringAttribute{
 				Optional:    true,
-				Description: "Path to list_routes.rb script. If not set, uses scripts embedded in the provider binary. Set this only if you need to use a custom/modified script.",
+				Description: "Deprecated: no longer used. Routes are now parsed via the `belt` CLI gem.",
 			},
 			"default_lambda_timeout": schema.Int64Attribute{
 				Optional:    true,
@@ -91,24 +90,6 @@ func (p *dispatcherProvider) Configure(ctx context.Context, req provider.Configu
 		return
 	}
 
-	// Set defaults
-	rubyScriptPath := config.RubyScriptPath.ValueString()
-	var embeddedScriptsDir string
-
-	if rubyScriptPath == "" {
-		// Extract embedded scripts to temp directory
-		var err error
-		embeddedScriptsDir, err = embedded.ExtractScripts()
-		if err != nil {
-			resp.Diagnostics.AddError(
-				"Failed to extract embedded scripts",
-				err.Error(),
-			)
-			return
-		}
-		rubyScriptPath = embedded.ScriptPath(embeddedScriptsDir, "list_routes.rb")
-	}
-
 	// Extract default tags
 	var defaultTags map[string]string
 	if !config.DefaultTags.IsNull() && !config.DefaultTags.IsUnknown() {
@@ -124,14 +105,12 @@ func (p *dispatcherProvider) Configure(ctx context.Context, req provider.Configu
 	dockerBuildConcurrency := int(config.DockerBuildConcurrency.ValueInt64())
 
 	client := &resources.DispatcherClient{
-		Environment:               config.Environment.ValueString(),
-		AwsRegion:                 config.AwsRegion.ValueString(),
-		RubyScriptPath:            rubyScriptPath,
-		EmbeddedScriptsDir:        embeddedScriptsDir,
-		DefaultLambdaTimeout:      config.DefaultLambdaTimeout.ValueInt64(),
-		DefaultLambdaMemory:       config.DefaultLambdaMemory.ValueInt64(),
-		DefaultTags:               defaultTags,
-		DockerBuildConcurrency:    dockerBuildConcurrency,
+		Environment:            config.Environment.ValueString(),
+		AwsRegion:              config.AwsRegion.ValueString(),
+		DefaultLambdaTimeout:   config.DefaultLambdaTimeout.ValueInt64(),
+		DefaultLambdaMemory:    config.DefaultLambdaMemory.ValueInt64(),
+		DefaultTags:            defaultTags,
+		DockerBuildConcurrency: dockerBuildConcurrency,
 	}
 
 	resp.DataSourceData = client
@@ -167,23 +146,16 @@ func (p *dispatcherProvider) Resources(_ context.Context) []func() resource.Reso
 
 // DispatcherClient holds the configuration for the provider.
 type DispatcherClient struct {
-	AppName                   string
-	Environment               string
-	AwsRegion                 string
-	AwsAccountId              string
-	FrontendUrls              []string
-	RubyScriptPath            string
-	EmbeddedScriptsDir        string
-	LambdaSourceDir           string
-	CognitoUserPoolArns       []string
-	LambdaEnvVars             map[string]interface{}
-	S3Buckets                 map[string]interface{}
-	LambdaConfig              map[string]interface{}
-	SharedIamPolicyArns       []string
-	LambdaSharedDirs          []string
-}
-
-// GetRubyScriptPath returns the Ruby script path for the data source.
-func (c *DispatcherClient) GetRubyScriptPath() string {
-	return c.RubyScriptPath
+	AppName             string
+	Environment         string
+	AwsRegion           string
+	AwsAccountId        string
+	FrontendUrls        []string
+	LambdaSourceDir     string
+	CognitoUserPoolArns []string
+	LambdaEnvVars       map[string]interface{}
+	S3Buckets           map[string]interface{}
+	LambdaConfig        map[string]interface{}
+	SharedIamPolicyArns []string
+	LambdaSharedDirs    []string
 }
