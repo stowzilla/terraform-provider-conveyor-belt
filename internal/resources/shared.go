@@ -589,8 +589,11 @@ func calculateLambdaSourceHash(lambdaSourceDir, lambda string, sharedDirs []stri
 		// If directory doesn't exist, skip it
 	}
 
-	// Hash Gemfile if it exists
+	// Hash Gemfile if it exists (check sourceDir first, then project root)
 	gemfilePath := filepath.Join(absLambdaSourceDir, "Gemfile")
+	if _, err := os.Stat(gemfilePath); os.IsNotExist(err) {
+		gemfilePath = filepath.Join(filepath.Dir(absLambdaSourceDir), "Gemfile")
+	}
 	if content, err := os.ReadFile(gemfilePath); err == nil {
 		hasher.Write([]byte("gemfile:"))
 		hasher.Write(content)
@@ -599,7 +602,7 @@ func calculateLambdaSourceHash(lambdaSourceDir, lambda string, sharedDirs []stri
 
 	// Hash gem directories (path-based gems in Docker build context)
 	// Changes to local gem source should trigger a rebuild
-	gemfileLockPath := filepath.Join(absLambdaSourceDir, "Gemfile.lock")
+	gemfileLockPath := filepath.Join(filepath.Dir(gemfilePath), "Gemfile.lock")
 	if content, err := os.ReadFile(gemfileLockPath); err == nil {
 		hasher.Write([]byte("gemfile_lock:"))
 		hasher.Write(content)
