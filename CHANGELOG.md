@@ -5,6 +5,38 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2026-07-22
+
+### Added
+
+- **`runtime` support in YAML** — Specify Lambda runtime per function (e.g., `runtime: ruby3.4`).
+
+- **S3 buckets by name in YAML** — Reference S3 buckets by logical name with convention-based ARN construction (`arn:aws:s3:::{app}-{env}-{name}`). Supports shorthand and expanded form with `ref()` for non-convention buckets:
+  ```yaml
+  s3_buckets:
+    images: [PutObject, GetObject]
+    custom_bucket:
+      bucket_arn: ref(external_bucket_arn)
+      permissions: [GetObject]
+  ```
+
+- **SNS triggers with `ref()` in YAML** — Declare SNS triggers with resolvable topic ARNs:
+  ```yaml
+  sns_triggers:
+    - topic_arn: ref(ses_bounces_topic_arn)
+      statement_id: AllowSESBounces
+  ```
+
+- **SQS triggers with `ref()` in YAML** — Declare SQS triggers with resolvable queue ARNs:
+  ```yaml
+  sqs_triggers:
+    - queue_arn: ref(notifications_queue_arn)
+      batch_size: 10
+  ```
+
+- S3 permission names auto-prefixed with `s3:` if no colon present.
+- `s3_buckets`, `sns_triggers`, and `sqs_triggers` from YAML and TF `lambda_config` are now concatenated during merge (same as `dynamodb_tables`).
+
 ## [0.0.5] - 2026-07-22
 
 ### Added

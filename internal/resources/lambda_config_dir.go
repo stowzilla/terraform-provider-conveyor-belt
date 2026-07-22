@@ -164,11 +164,10 @@ func deepMergeYAML(base, override map[string]interface{}) map[string]interface{}
 func convertToLambdaConfig(merged map[string]interface{}, envRefs map[string]string, appName, environment, awsRegion, awsAccountId string) map[string]interface{} {
 	result := make(map[string]interface{})
 
-	// Direct passthrough fields
+	// Direct passthrough fields (simple scalars or already-correct structures)
 	simpleKeys := []string{
-		"timeout", "memory_size",
-		"s3_buckets", "ses_emails",
-		"sns_triggers", "sqs_triggers",
+		"timeout", "memory_size", "runtime",
+		"ses_emails",
 		"reserved_concurrency", "ephemeral_storage",
 		"vpc_config",
 	}
@@ -196,6 +195,32 @@ func convertToLambdaConfig(merged map[string]interface{}, envRefs map[string]str
 			if len(tables) > 0 {
 				result["dynamodb_tables"] = tables
 			}
+		}
+	}
+
+	// Handle s3_buckets: convert map-style YAML to array-of-objects format
+	if bucketsRaw, exists := merged["s3_buckets"]; exists {
+		if bucketsMap, ok := bucketsRaw.(map[string]interface{}); ok {
+			buckets := convertS3Buckets(bucketsMap, appName, environment, envRefs)
+			if len(buckets) > 0 {
+				result["s3_buckets"] = buckets
+			}
+		}
+	}
+
+	// Handle sns_triggers: resolve ref() in topic_arn
+	if triggersRaw, exists := merged["sns_triggers"]; exists {
+		triggers := convertSNSTriggers(triggersRaw, envRefs)
+		if len(triggers) > 0 {
+			result["sns_triggers"] = triggers
+		}
+	}
+
+	// Handle sqs_triggers: resolve ref() in queue_arn
+	if triggersRaw, exists := merged["sqs_triggers"]; exists {
+		triggers := convertSQSTriggers(triggersRaw, envRefs)
+		if len(triggers) > 0 {
+			result["sqs_triggers"] = triggers
 		}
 	}
 
@@ -364,6 +389,219 @@ func convertDynamoDBTables(tablesMap map[string]interface{}, appName, environmen
 	return result
 }
 
+// convertS3Buckets converts the map-style YAML S3 config into the array-of-objects
+// format that the provider's IAM processing expects.
+//
+// Input YAML format (shorthand — bucket name, permissions as value):
+//
+//	s3_buckets:
+//	  images: [PutObject, GetObject]
+//	  legal_documents: [GetObject, GetObjectVersion]
+//
+// Input YAML format (ref — for non-convention bucket names):
+//
+//	s3_buckets:
+//	  custom_bucket:
+//	    bucket_arn: ref(images_bucket_arn)
+//	    permissions: [PutObject, GetObject]
+//
+// Convention: bucket ARN is arn:aws:s3:::{app}-{env}-{name} (underscores → hyphens)
+func convertS3Buckets(bucketsMap map[string]interface{}, appName, environment string, envRefs map[string]string) []interface{} {
+	var result []interface{}
+
+	bucketNames := make([]string, 0, len(bucketsMap))
+	for name := range bucketsMap {
+		bucketNames = append(bucketNames, name)
+	}
+	sort.Strings(bucketNames)
+
+	for _, bucketName := range bucketNames {
+		bucketConfigRaw := bucketsMap[bucketName]
+
+		// Shorthand: bucket_name: [PutObject, GetObject]
+		if permsList, ok := bucketConfigRaw.([]interface{}); ok {
+			permissions := normalizeS3Permissions(permsList)
+			if len(permissions) > 0 {
+				normalizedName := strings.ReplaceAll(bucketName, "_", "-")
+				bucketArn := fmt.Sprintf("arn:aws:s3:::%s-%s-%s", appName, environment, normalizedName)
+				entry := map[string]interface{}{
+					"bucket_arn":  bucketArn,
+					"permissions": toInterfaceSlice(permissions),
+				}
+				result = append(result, entry)
+			}
+			continue
+		}
+
+		// Expanded form: bucket_name: {bucket_arn: ref(...), permissions: [...]}
+		bucketConfig, ok := bucketConfigRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Determine bucket ARN: explicit ref() or convention
+		var bucketArn string
+		if arnRaw, exists := bucketConfig["bucket_arn"]; exists {
+			if arnStr, ok := arnRaw.(string); ok {
+				if refName, isRef := parseRefMarker(arnStr); isRef {
+					if resolved, exists := envRefs[refName]; exists {
+						bucketArn = resolved
+					}
+				} else {
+					bucketArn = arnStr
+				}
+			}
+		}
+		if bucketArn == "" {
+			normalizedName := strings.ReplaceAll(bucketName, "_", "-")
+			bucketArn = fmt.Sprintf("arn:aws:s3:::%s-%s-%s", appName, environment, normalizedName)
+		}
+
+		if permsRaw, exists := bucketConfig["permissions"]; exists {
+			permissions := normalizeS3Permissions(permsRaw)
+			if len(permissions) > 0 {
+				entry := map[string]interface{}{
+					"bucket_arn":  bucketArn,
+					"permissions": toInterfaceSlice(permissions),
+				}
+				result = append(result, entry)
+			}
+		}
+	}
+
+	return result
+}
+
+// normalizeS3Permissions adds "s3:" prefix if not already present.
+func normalizeS3Permissions(permsRaw interface{}) []string {
+	var rawPerms []string
+
+	switch v := permsRaw.(type) {
+	case []interface{}:
+		for _, p := range v {
+			if s, ok := p.(string); ok {
+				rawPerms = append(rawPerms, s)
+			}
+		}
+	case []string:
+		rawPerms = v
+	default:
+		return nil
+	}
+
+	var result []string
+	for _, perm := range rawPerms {
+		if !strings.Contains(perm, ":") {
+			perm = "s3:" + perm
+		}
+		result = append(result, perm)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// convertSNSTriggers converts YAML SNS trigger config into the provider format.
+//
+// Input YAML format:
+//
+//	sns_triggers:
+//	  - topic_arn: ref(ses_bounces_topic_arn)
+//	    statement_id: AllowSESBounces
+//	  - topic_arn: ref(ses_complaints_topic_arn)
+//	    statement_id: AllowSESComplaints
+func convertSNSTriggers(triggersRaw interface{}, envRefs map[string]string) []interface{} {
+	triggerList, ok := triggersRaw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	var result []interface{}
+	for _, triggerRaw := range triggerList {
+		triggerMap, ok := triggerRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		entry := make(map[string]interface{})
+
+		// Resolve topic_arn (supports ref())
+		if arnRaw, exists := triggerMap["topic_arn"]; exists {
+			if arnStr, ok := arnRaw.(string); ok {
+				if refName, isRef := parseRefMarker(arnStr); isRef {
+					if resolved, exists := envRefs[refName]; exists {
+						entry["topic_arn"] = resolved
+					} else {
+						entry["topic_arn"] = ""
+					}
+				} else {
+					entry["topic_arn"] = arnStr
+				}
+			}
+		}
+
+		// Pass through statement_id
+		if sid, exists := triggerMap["statement_id"]; exists {
+			entry["statement_id"] = sid
+		}
+
+		if _, hasArn := entry["topic_arn"]; hasArn {
+			result = append(result, entry)
+		}
+	}
+
+	return result
+}
+
+// convertSQSTriggers converts YAML SQS trigger config into the provider format.
+//
+// Input YAML format:
+//
+//	sqs_triggers:
+//	  - queue_arn: ref(notifications_queue_arn)
+//	    batch_size: 10
+func convertSQSTriggers(triggersRaw interface{}, envRefs map[string]string) []interface{} {
+	triggerList, ok := triggersRaw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	var result []interface{}
+	for _, triggerRaw := range triggerList {
+		triggerMap, ok := triggerRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		entry := make(map[string]interface{})
+
+		// Resolve queue_arn (supports ref())
+		if arnRaw, exists := triggerMap["queue_arn"]; exists {
+			if arnStr, ok := arnRaw.(string); ok {
+				if refName, isRef := parseRefMarker(arnStr); isRef {
+					if resolved, exists := envRefs[refName]; exists {
+						entry["queue_arn"] = resolved
+					} else {
+						entry["queue_arn"] = ""
+					}
+				} else {
+					entry["queue_arn"] = arnStr
+				}
+			}
+		}
+
+		// Pass through batch_size
+		if bs, exists := triggerMap["batch_size"]; exists {
+			entry["batch_size"] = bs
+		}
+
+		if _, hasArn := entry["queue_arn"]; hasArn {
+			result = append(result, entry)
+		}
+	}
+
+	return result
+}
+
 // normalizePermissions takes a YAML permissions value (list of strings like "BatchWriteItem")
 // and normalizes them to the full "dynamodb:Action" format the provider expects.
 func normalizePermissions(permsRaw interface{}) []string {
@@ -446,7 +684,7 @@ func mergeLambdaConfigs(yamlConfig, tfConfig map[string]interface{}) map[string]
 
 // deepMergeLambdaEntry merges two lambda config entries.
 // TF values override YAML, but env_vars are merged (TF env_vars override YAML env_vars per key).
-// dynamodb_tables from both sources are concatenated (both TF and YAML tables are needed).
+// dynamodb_tables, s3_buckets, sns_triggers, sqs_triggers from both sources are concatenated.
 func deepMergeLambdaEntry(base, override map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
 	for k, v := range base {
@@ -472,9 +710,9 @@ func deepMergeLambdaEntry(base, override map[string]interface{}) map[string]inte
 			} else {
 				result[k] = v
 			}
-		case "dynamodb_tables":
-			// Concatenate dynamodb_tables (both sources may have valid entries)
-			baseTables := toSliceInterface(result["dynamodb_tables"])
+		case "dynamodb_tables", "s3_buckets", "sns_triggers", "sqs_triggers":
+			// Concatenate resource arrays (both sources may have valid entries)
+			baseTables := toSliceInterface(result[k])
 			overrideTables := toSliceInterface(v)
 			result[k] = append(baseTables, overrideTables...)
 		default:

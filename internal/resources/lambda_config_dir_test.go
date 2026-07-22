@@ -408,3 +408,143 @@ func TestConvertDynamoDBTables_Shorthand(t *testing.T) {
 		t.Error("expected users table entry from shorthand syntax")
 	}
 }
+
+func TestConvertS3Buckets(t *testing.T) {
+	envRefs := map[string]string{
+		"images_bucket_arn": "arn:aws:s3:::custom-images-bucket",
+	}
+
+	t.Run("shorthand — bucket name with permissions", func(t *testing.T) {
+		bucketsMap := map[string]interface{}{
+			"images":          []interface{}{"PutObject", "GetObject"},
+			"legal_documents": []interface{}{"GetObject", "GetObjectVersion"},
+		}
+
+		result := convertS3Buckets(bucketsMap, "myapp", "dev", envRefs)
+
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d", len(result))
+		}
+
+		// Images bucket (sorted first)
+		entry0 := result[0].(map[string]interface{})
+		if entry0["bucket_arn"] != "arn:aws:s3:::myapp-dev-images" {
+			t.Errorf("expected convention ARN, got %v", entry0["bucket_arn"])
+		}
+		perms := entry0["permissions"].([]interface{})
+		if perms[0] != "s3:GetObject" || perms[1] != "s3:PutObject" {
+			t.Errorf("expected sorted s3-prefixed permissions, got %v", perms)
+		}
+
+		// Legal documents (underscore → hyphen)
+		entry1 := result[1].(map[string]interface{})
+		if entry1["bucket_arn"] != "arn:aws:s3:::myapp-dev-legal-documents" {
+			t.Errorf("expected hyphenated ARN, got %v", entry1["bucket_arn"])
+		}
+	})
+
+	t.Run("expanded — with ref() bucket_arn", func(t *testing.T) {
+		bucketsMap := map[string]interface{}{
+			"custom": map[string]interface{}{
+				"bucket_arn":  "ref(images_bucket_arn)",
+				"permissions": []interface{}{"GetObject"},
+			},
+		}
+
+		result := convertS3Buckets(bucketsMap, "myapp", "dev", envRefs)
+
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+
+		entry := result[0].(map[string]interface{})
+		if entry["bucket_arn"] != "arn:aws:s3:::custom-images-bucket" {
+			t.Errorf("expected resolved ref ARN, got %v", entry["bucket_arn"])
+		}
+	})
+}
+
+func TestConvertSNSTriggers(t *testing.T) {
+	envRefs := map[string]string{
+		"bounces_topic_arn": "arn:aws:sns:us-east-1:123:bounces",
+	}
+
+	t.Run("resolves ref() in topic_arn", func(t *testing.T) {
+		triggersRaw := []interface{}{
+			map[string]interface{}{
+				"topic_arn":    "ref(bounces_topic_arn)",
+				"statement_id": "AllowBounces",
+			},
+		}
+
+		result := convertSNSTriggers(triggersRaw, envRefs)
+
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+
+		entry := result[0].(map[string]interface{})
+		if entry["topic_arn"] != "arn:aws:sns:us-east-1:123:bounces" {
+			t.Errorf("expected resolved ARN, got %v", entry["topic_arn"])
+		}
+		if entry["statement_id"] != "AllowBounces" {
+			t.Errorf("expected statement_id=AllowBounces, got %v", entry["statement_id"])
+		}
+	})
+}
+
+func TestConvertSQSTriggers(t *testing.T) {
+	envRefs := map[string]string{
+		"notifications_queue_arn": "arn:aws:sqs:us-east-1:123:notifications",
+	}
+
+	t.Run("resolves ref() in queue_arn with batch_size", func(t *testing.T) {
+		triggersRaw := []interface{}{
+			map[string]interface{}{
+				"queue_arn":  "ref(notifications_queue_arn)",
+				"batch_size": 10,
+			},
+		}
+
+		result := convertSQSTriggers(triggersRaw, envRefs)
+
+		if len(result) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(result))
+		}
+
+		entry := result[0].(map[string]interface{})
+		if entry["queue_arn"] != "arn:aws:sqs:us-east-1:123:notifications" {
+			t.Errorf("expected resolved ARN, got %v", entry["queue_arn"])
+		}
+		if entry["batch_size"] != 10 {
+			t.Errorf("expected batch_size=10, got %v", entry["batch_size"])
+		}
+	})
+}
+
+func TestRuntimePassthrough(t *testing.T) {
+	dir := t.TempDir()
+
+	yaml := `default:
+  timeout: 30
+  memory_size: 1024
+  runtime: ruby3.4
+  ephemeral_storage: 2048
+`
+	if err := os.WriteFile(filepath.Join(dir, "search.yml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	search := config["search"].(map[string]interface{})
+	if search["runtime"] != "ruby3.4" {
+		t.Errorf("expected runtime=ruby3.4, got %v", search["runtime"])
+	}
+	if search["ephemeral_storage"] != 2048 {
+		t.Errorf("expected ephemeral_storage=2048, got %v", search["ephemeral_storage"])
+	}
+}
