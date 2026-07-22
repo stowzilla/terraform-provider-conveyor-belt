@@ -17,8 +17,15 @@ import (
 //	default: &default
 //	  timeout: 60
 //	  memory_size: 512
-//	  env_keys:
-//	    - IMAGES_BUCKET_NAME
+//	  env_vars:
+//	    WELCOME_TITLE: "Hello"
+//	    COGNITO_POOL_ID: ref(cognito_user_pool_id)
+//	  dynamodb_tables:
+//	    slots:
+//	      permissions: [BatchWriteItem]
+//	      indexes:
+//	        SponsorIndex:
+//	          permissions: [Query]
 //
 //	dev:
 //	  <<: *default
@@ -27,7 +34,7 @@ import (
 //	prod:
 //	  <<: *default
 //	  memory_size: 1024
-func loadLambdaConfigFromDir(dir string, environment string) (map[string]interface{}, error) {
+func loadLambdaConfigFromDir(dir string, environment string, envRefs map[string]string, appName string, awsRegion string, awsAccountId string) (map[string]interface{}, error) {
 	if dir == "" {
 		return nil, nil
 	}
@@ -68,7 +75,7 @@ func loadLambdaConfigFromDir(dir string, environment string) (map[string]interfa
 		lambdaName := strings.TrimSuffix(strings.TrimSuffix(name, ".yml"), ".yaml")
 		filePath := filepath.Join(absDir, name)
 
-		config, err := loadSingleLambdaConfig(filePath, environment)
+		config, err := loadSingleLambdaConfig(filePath, environment, envRefs, appName, awsRegion, awsAccountId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load %s: %w", filePath, err)
 		}
@@ -83,7 +90,7 @@ func loadLambdaConfigFromDir(dir string, environment string) (map[string]interfa
 
 // loadSingleLambdaConfig reads a single YAML file and resolves the config for
 // the given environment. It merges default < environment-specific.
-func loadSingleLambdaConfig(filePath string, environment string) (map[string]interface{}, error) {
+func loadSingleLambdaConfig(filePath string, environment string, envRefs map[string]string, appName string, awsRegion string, awsAccountId string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -112,7 +119,7 @@ func loadSingleLambdaConfig(filePath string, environment string) (map[string]int
 	}
 
 	// Convert to lambda_config-compatible format
-	return convertToLambdaConfig(merged), nil
+	return convertToLambdaConfig(merged, envRefs, appName, environment, awsRegion, awsAccountId), nil
 }
 
 // extractYAMLMap gets a map value from a parent map, handling type assertions.
@@ -154,51 +161,214 @@ func deepMergeYAML(base, override map[string]interface{}) map[string]interface{}
 
 // convertToLambdaConfig transforms YAML fields into the format that the
 // provider's lambda_config processing expects.
-func convertToLambdaConfig(merged map[string]interface{}) map[string]interface{} {
+func convertToLambdaConfig(merged map[string]interface{}, envRefs map[string]string, appName, environment, awsRegion, awsAccountId string) map[string]interface{} {
 	result := make(map[string]interface{})
 
 	// Direct passthrough fields
-	supportedKeys := []string{
-		"timeout", "memory_size", "env_vars",
-		"s3_buckets", "dynamodb_tables", "ses_emails",
+	simpleKeys := []string{
+		"timeout", "memory_size",
+		"s3_buckets", "ses_emails",
 		"sns_triggers", "sqs_triggers",
 		"reserved_concurrency", "ephemeral_storage",
 		"vpc_config",
 	}
 
-	for _, key := range supportedKeys {
+	for _, key := range simpleKeys {
 		if val, exists := merged[key]; exists {
 			result[key] = val
 		}
 	}
 
-	// Handle env_keys: convert list of key names into env_vars entries with empty values.
-	// These serve as declarations that Terraform should provide values for.
-	// They get merged into env_vars.
-	if envKeys, exists := merged["env_keys"]; exists {
-		envVars := make(map[string]interface{})
-		// Start with existing env_vars if present
-		if existing, ok := result["env_vars"].(map[string]interface{}); ok {
-			for k, v := range existing {
-				envVars[k] = v
+	// Handle env_vars: resolve ref() markers using envRefs map
+	if envVarsRaw, exists := merged["env_vars"]; exists {
+		if envVarsMap, ok := envVarsRaw.(map[string]interface{}); ok {
+			resolved := resolveEnvVars(envVarsMap, envRefs)
+			if len(resolved) > 0 {
+				result["env_vars"] = resolved
 			}
 		}
-		// Add env_keys as empty-value entries (Terraform variable references)
-		if keyList, ok := envKeys.([]interface{}); ok {
-			for _, k := range keyList {
-				if keyStr, ok := k.(string); ok {
-					// Only add if not already set by env_vars
-					if _, exists := envVars[keyStr]; !exists {
-						envVars[keyStr] = ""
+	}
+
+	// Handle dynamodb_tables: convert map-style YAML to array-of-objects format
+	if tablesRaw, exists := merged["dynamodb_tables"]; exists {
+		if tablesMap, ok := tablesRaw.(map[string]interface{}); ok {
+			tables := convertDynamoDBTables(tablesMap, appName, environment, awsRegion, awsAccountId)
+			if len(tables) > 0 {
+				result["dynamodb_tables"] = tables
+			}
+		}
+	}
+
+	return result
+}
+
+// resolveEnvVars processes env_vars, resolving ref() markers from the envRefs map.
+// Plain string values pass through unchanged.
+func resolveEnvVars(envVars map[string]interface{}, envRefs map[string]string) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, val := range envVars {
+		strVal, ok := val.(string)
+		if !ok {
+			result[key] = val
+			continue
+		}
+
+		// Check for ref(name) pattern
+		if refName, isRef := parseRefMarker(strVal); isRef {
+			if resolvedVal, exists := envRefs[refName]; exists {
+				result[key] = resolvedVal
+			} else {
+				// ref not found in envRefs — leave as empty string (will be caught at plan time)
+				result[key] = ""
+			}
+		} else {
+			result[key] = strVal
+		}
+	}
+	return result
+}
+
+// parseRefMarker checks if a string matches the ref(name) pattern.
+// Returns the reference name and true if it matches, or empty string and false otherwise.
+func parseRefMarker(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "ref(") && strings.HasSuffix(s, ")") {
+		name := s[4 : len(s)-1]
+		name = strings.TrimSpace(name)
+		if name != "" {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// convertDynamoDBTables converts the map-style YAML DynamoDB config into the
+// array-of-objects format that the provider's IAM processing expects.
+//
+// Input YAML format:
+//
+//	dynamodb_tables:
+//	  slots:
+//	    permissions: [BatchWriteItem]
+//	    indexes:
+//	      SponsorIndex:
+//	        permissions: [Query]
+//	  users:
+//	    permissions: [BatchGetItem]
+//
+// Output format (array of objects):
+//
+//	[
+//	  {"table_arn": "arn:aws:dynamodb:...:table/app-env-slots", "permissions": ["dynamodb:BatchWriteItem"]},
+//	  {"table_arn": "arn:aws:dynamodb:...:table/app-env-slots/index/SponsorIndex", "permissions": ["dynamodb:Query"]},
+//	  {"table_arn": "arn:aws:dynamodb:...:table/app-env-users", "permissions": ["dynamodb:BatchGetItem"]},
+//	]
+func convertDynamoDBTables(tablesMap map[string]interface{}, appName, environment, awsRegion, awsAccountId string) []interface{} {
+	var result []interface{}
+
+	// Sort table names for deterministic output
+	tableNames := make([]string, 0, len(tablesMap))
+	for name := range tablesMap {
+		tableNames = append(tableNames, name)
+	}
+	sort.Strings(tableNames)
+
+	for _, tableName := range tableNames {
+		tableConfigRaw := tablesMap[tableName]
+		tableConfig, ok := tableConfigRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Build the table ARN from convention
+		tableArn := fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s-%s-%s",
+			awsRegion, awsAccountId, appName, environment, tableName)
+
+		// Get table-level permissions
+		if permsRaw, exists := tableConfig["permissions"]; exists {
+			permissions := normalizePermissions(permsRaw)
+			if len(permissions) > 0 {
+				entry := map[string]interface{}{
+					"table_arn":   tableArn,
+					"permissions": toInterfaceSlice(permissions),
+				}
+				result = append(result, entry)
+			}
+		}
+
+		// Handle indexes
+		if indexesRaw, exists := tableConfig["indexes"]; exists {
+			if indexesMap, ok := indexesRaw.(map[string]interface{}); ok {
+				// Sort index names for deterministic output
+				indexNames := make([]string, 0, len(indexesMap))
+				for name := range indexesMap {
+					indexNames = append(indexNames, name)
+				}
+				sort.Strings(indexNames)
+
+				for _, indexName := range indexNames {
+					indexConfigRaw := indexesMap[indexName]
+					indexConfig, ok := indexConfigRaw.(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					indexArn := fmt.Sprintf("%s/index/%s", tableArn, indexName)
+
+					if permsRaw, exists := indexConfig["permissions"]; exists {
+						permissions := normalizePermissions(permsRaw)
+						if len(permissions) > 0 {
+							entry := map[string]interface{}{
+								"table_arn":   indexArn,
+								"permissions": toInterfaceSlice(permissions),
+							}
+							result = append(result, entry)
+						}
 					}
 				}
 			}
 		}
-		if len(envVars) > 0 {
-			result["env_vars"] = envVars
-		}
 	}
 
+	return result
+}
+
+// normalizePermissions takes a YAML permissions value (list of strings like "BatchWriteItem")
+// and normalizes them to the full "dynamodb:Action" format the provider expects.
+func normalizePermissions(permsRaw interface{}) []string {
+	var rawPerms []string
+
+	switch v := permsRaw.(type) {
+	case []interface{}:
+		for _, p := range v {
+			if s, ok := p.(string); ok {
+				rawPerms = append(rawPerms, s)
+			}
+		}
+	case []string:
+		rawPerms = v
+	default:
+		return nil
+	}
+
+	var result []string
+	for _, perm := range rawPerms {
+		// Add "dynamodb:" prefix if not already present
+		if !strings.Contains(perm, ":") {
+			perm = "dynamodb:" + perm
+		}
+		result = append(result, perm)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// toInterfaceSlice converts a []string to []interface{} for consistent map storage.
+func toInterfaceSlice(strs []string) []interface{} {
+	result := make([]interface{}, len(strs))
+	for i, s := range strs {
+		result[i] = s
+	}
 	return result
 }
 
@@ -244,14 +414,16 @@ func mergeLambdaConfigs(yamlConfig, tfConfig map[string]interface{}) map[string]
 
 // deepMergeLambdaEntry merges two lambda config entries.
 // TF values override YAML, but env_vars are merged (TF env_vars override YAML env_vars per key).
+// dynamodb_tables from both sources are concatenated (both TF and YAML tables are needed).
 func deepMergeLambdaEntry(base, override map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
 	for k, v := range base {
 		result[k] = v
 	}
 	for k, v := range override {
-		if k == "env_vars" {
-			// Merge env_vars maps
+		switch k {
+		case "env_vars":
+			// Merge env_vars maps (TF overrides per key)
 			baseEnvVars := toMapInterface(result["env_vars"])
 			overrideEnvVars := toMapInterface(v)
 			if baseEnvVars != nil && overrideEnvVars != nil {
@@ -266,7 +438,12 @@ func deepMergeLambdaEntry(base, override map[string]interface{}) map[string]inte
 			} else {
 				result[k] = v
 			}
-		} else {
+		case "dynamodb_tables":
+			// Concatenate dynamodb_tables (both sources may have valid entries)
+			baseTables := toSliceInterface(result["dynamodb_tables"])
+			overrideTables := toSliceInterface(v)
+			result[k] = append(baseTables, overrideTables...)
+		default:
 			result[k] = v
 		}
 	}
@@ -280,6 +457,17 @@ func toMapInterface(val interface{}) map[string]interface{} {
 	}
 	if m, ok := val.(map[string]interface{}); ok {
 		return m
+	}
+	return nil
+}
+
+// toSliceInterface attempts to convert an interface{} to []interface{}.
+func toSliceInterface(val interface{}) []interface{} {
+	if val == nil {
+		return nil
+	}
+	if s, ok := val.([]interface{}); ok {
+		return s
 	}
 	return nil
 }

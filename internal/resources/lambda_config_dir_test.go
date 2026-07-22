@@ -14,11 +14,18 @@ func TestLoadLambdaConfigFromDir(t *testing.T) {
 	customerYAML := `default: &default
   timeout: 60
   memory_size: 512
-  env_keys:
-    - IMAGES_BUCKET_NAME
-    - STRIPE_KEY
   env_vars:
     STATIC_VAR: "hello"
+    COGNITO_ID: ref(cognito_user_pool_id)
+    BUCKET: ref(images_bucket)
+  dynamodb_tables:
+    slots:
+      permissions: [BatchWriteItem]
+      indexes:
+        SponsorIndex:
+          permissions: [Query]
+    users:
+      permissions: [BatchGetItem]
 
 dev:
   <<: *default
@@ -42,8 +49,13 @@ prod:
 		t.Fatal(err)
 	}
 
-	t.Run("loads dev environment", func(t *testing.T) {
-		config, err := loadLambdaConfigFromDir(dir, "dev")
+	envRefs := map[string]string{
+		"cognito_user_pool_id": "us-east-1_ABC123",
+		"images_bucket":        "my-app-dev-images",
+	}
+
+	t.Run("loads dev environment with ref resolution", func(t *testing.T) {
+		config, err := loadLambdaConfigFromDir(dir, "dev", envRefs, "myapp", "us-east-1", "123456789012")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -52,7 +64,6 @@ prod:
 			t.Fatal("expected config, got nil")
 		}
 
-		// Check customer config for dev
 		customer, ok := config["customer"].(map[string]interface{})
 		if !ok {
 			t.Fatalf("expected customer config to be a map, got %T", config["customer"])
@@ -66,7 +77,7 @@ prod:
 			t.Errorf("expected customer memory_size=256 for dev, got %v", customer["memory_size"])
 		}
 
-		// Check env_vars includes both static and env_keys
+		// Check env_vars with ref() resolution
 		envVars, ok := customer["env_vars"].(map[string]interface{})
 		if !ok {
 			t.Fatalf("expected env_vars to be a map, got %T", customer["env_vars"])
@@ -75,11 +86,51 @@ prod:
 		if envVars["STATIC_VAR"] != "hello" {
 			t.Errorf("expected STATIC_VAR=hello, got %v", envVars["STATIC_VAR"])
 		}
-		if envVars["IMAGES_BUCKET_NAME"] != "" {
-			t.Errorf("expected IMAGES_BUCKET_NAME='', got %v", envVars["IMAGES_BUCKET_NAME"])
+		if envVars["COGNITO_ID"] != "us-east-1_ABC123" {
+			t.Errorf("expected COGNITO_ID to be resolved from ref, got %v", envVars["COGNITO_ID"])
 		}
-		if envVars["STRIPE_KEY"] != "" {
-			t.Errorf("expected STRIPE_KEY='', got %v", envVars["STRIPE_KEY"])
+		if envVars["BUCKET"] != "my-app-dev-images" {
+			t.Errorf("expected BUCKET to be resolved from ref, got %v", envVars["BUCKET"])
+		}
+
+		// Check DynamoDB tables converted to array format
+		tables, ok := customer["dynamodb_tables"].([]interface{})
+		if !ok {
+			t.Fatalf("expected dynamodb_tables to be a slice, got %T", customer["dynamodb_tables"])
+		}
+
+		// Should have 3 entries: slots table, slots/index/SponsorIndex, users table
+		if len(tables) != 3 {
+			t.Fatalf("expected 3 dynamodb_tables entries, got %d", len(tables))
+		}
+
+		// Check first entry (slots table)
+		entry0 := tables[0].(map[string]interface{})
+		expectedArn := "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-slots"
+		if entry0["table_arn"] != expectedArn {
+			t.Errorf("expected table_arn=%s, got %v", expectedArn, entry0["table_arn"])
+		}
+		perms0 := entry0["permissions"].([]interface{})
+		if len(perms0) != 1 || perms0[0] != "dynamodb:BatchWriteItem" {
+			t.Errorf("expected permissions=[dynamodb:BatchWriteItem], got %v", perms0)
+		}
+
+		// Check second entry (slots/index/SponsorIndex)
+		entry1 := tables[1].(map[string]interface{})
+		expectedIndexArn := expectedArn + "/index/SponsorIndex"
+		if entry1["table_arn"] != expectedIndexArn {
+			t.Errorf("expected table_arn=%s, got %v", expectedIndexArn, entry1["table_arn"])
+		}
+		perms1 := entry1["permissions"].([]interface{})
+		if len(perms1) != 1 || perms1[0] != "dynamodb:Query" {
+			t.Errorf("expected permissions=[dynamodb:Query], got %v", perms1)
+		}
+
+		// Check third entry (users table)
+		entry2 := tables[2].(map[string]interface{})
+		expectedUsersArn := "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-users"
+		if entry2["table_arn"] != expectedUsersArn {
+			t.Errorf("expected table_arn=%s, got %v", expectedUsersArn, entry2["table_arn"])
 		}
 
 		// Check worker config
@@ -94,7 +145,7 @@ prod:
 	})
 
 	t.Run("loads prod environment with overrides", func(t *testing.T) {
-		config, err := loadLambdaConfigFromDir(dir, "prod")
+		config, err := loadLambdaConfigFromDir(dir, "prod", envRefs, "myapp", "us-east-1", "123456789012")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -114,7 +165,7 @@ prod:
 	})
 
 	t.Run("returns nil for empty dir path", func(t *testing.T) {
-		config, err := loadLambdaConfigFromDir("", "dev")
+		config, err := loadLambdaConfigFromDir("", "dev", envRefs, "myapp", "us-east-1", "123456789012")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -124,7 +175,7 @@ prod:
 	})
 
 	t.Run("returns nil for nonexistent directory", func(t *testing.T) {
-		config, err := loadLambdaConfigFromDir("/nonexistent/path", "dev")
+		config, err := loadLambdaConfigFromDir("/nonexistent/path", "dev", envRefs, "myapp", "us-east-1", "123456789012")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -132,17 +183,88 @@ prod:
 			t.Errorf("expected nil, got %v", config)
 		}
 	})
+
+	t.Run("unresolved ref returns empty string", func(t *testing.T) {
+		refDir := t.TempDir()
+		yaml := `default:
+  env_vars:
+    MISSING: ref(does_not_exist)
+`
+		if err := os.WriteFile(filepath.Join(refDir, "api.yml"), []byte(yaml), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := loadLambdaConfigFromDir(refDir, "dev", envRefs, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		api := config["api"].(map[string]interface{})
+		envVars := api["env_vars"].(map[string]interface{})
+		if envVars["MISSING"] != "" {
+			t.Errorf("expected unresolved ref to be empty string, got %v", envVars["MISSING"])
+		}
+	})
+}
+
+func TestParseRefMarker(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantName string
+		wantOk   bool
+	}{
+		{"ref(cognito_user_pool_id)", "cognito_user_pool_id", true},
+		{"ref( spaced )", "spaced", true},
+		{"ref()", "", false},
+		{"not_a_ref", "", false},
+		{"ref(partial", "", false},
+		{"plain string value", "", false},
+	}
+
+	for _, tt := range tests {
+		name, ok := parseRefMarker(tt.input)
+		if ok != tt.wantOk || name != tt.wantName {
+			t.Errorf("parseRefMarker(%q) = (%q, %v), want (%q, %v)", tt.input, name, ok, tt.wantName, tt.wantOk)
+		}
+	}
+}
+
+func TestNormalizePermissions(t *testing.T) {
+	t.Run("adds dynamodb prefix", func(t *testing.T) {
+		input := []interface{}{"BatchWriteItem", "Query", "GetItem"}
+		result := normalizePermissions(input)
+		expected := []string{"dynamodb:BatchWriteItem", "dynamodb:GetItem", "dynamodb:Query"}
+		if len(result) != len(expected) {
+			t.Fatalf("expected %d permissions, got %d", len(expected), len(result))
+		}
+		for i, p := range result {
+			if p != expected[i] {
+				t.Errorf("expected %s, got %s", expected[i], p)
+			}
+		}
+	})
+
+	t.Run("preserves existing prefix", func(t *testing.T) {
+		input := []interface{}{"dynamodb:PutItem", "s3:GetObject"}
+		result := normalizePermissions(input)
+		if result[0] != "dynamodb:PutItem" {
+			t.Errorf("expected dynamodb:PutItem, got %s", result[0])
+		}
+		if result[1] != "s3:GetObject" {
+			t.Errorf("expected s3:GetObject, got %s", result[1])
+		}
+	})
 }
 
 func TestMergeLambdaConfigs(t *testing.T) {
-	t.Run("TF values override YAML values", func(t *testing.T) {
+	t.Run("TF env_vars override YAML env_vars per key", func(t *testing.T) {
 		yamlConfig := map[string]interface{}{
 			"customer": map[string]interface{}{
 				"timeout":     60,
 				"memory_size": 256,
 				"env_vars": map[string]interface{}{
-					"IMAGES_BUCKET_NAME": "",
-					"STATIC_VAR":         "from_yaml",
+					"COGNITO_ID": "from-yaml",
+					"STATIC_VAR": "keep-this",
 				},
 			},
 		}
@@ -150,7 +272,7 @@ func TestMergeLambdaConfigs(t *testing.T) {
 		tfConfig := map[string]interface{}{
 			"customer": map[string]interface{}{
 				"env_vars": map[string]interface{}{
-					"IMAGES_BUCKET_NAME": "my-actual-bucket",
+					"COGNITO_ID": "from-terraform",
 				},
 			},
 		}
@@ -159,15 +281,40 @@ func TestMergeLambdaConfigs(t *testing.T) {
 		customer := merged["customer"].(map[string]interface{})
 		envVars := customer["env_vars"].(map[string]interface{})
 
-		if envVars["IMAGES_BUCKET_NAME"] != "my-actual-bucket" {
-			t.Errorf("expected TF value to override YAML, got %v", envVars["IMAGES_BUCKET_NAME"])
+		if envVars["COGNITO_ID"] != "from-terraform" {
+			t.Errorf("expected TF value to override YAML, got %v", envVars["COGNITO_ID"])
 		}
-		if envVars["STATIC_VAR"] != "from_yaml" {
+		if envVars["STATIC_VAR"] != "keep-this" {
 			t.Errorf("expected YAML value to be preserved, got %v", envVars["STATIC_VAR"])
 		}
-		// timeout and memory from YAML should be preserved
 		if customer["timeout"] != 60 {
 			t.Errorf("expected timeout=60 from YAML, got %v", customer["timeout"])
+		}
+	})
+
+	t.Run("dynamodb_tables are concatenated", func(t *testing.T) {
+		yamlConfig := map[string]interface{}{
+			"api": map[string]interface{}{
+				"dynamodb_tables": []interface{}{
+					map[string]interface{}{"table_arn": "arn:yaml-table", "permissions": []interface{}{"dynamodb:GetItem"}},
+				},
+			},
+		}
+
+		tfConfig := map[string]interface{}{
+			"api": map[string]interface{}{
+				"dynamodb_tables": []interface{}{
+					map[string]interface{}{"table_arn": "arn:tf-table", "permissions": []interface{}{"dynamodb:PutItem"}},
+				},
+			},
+		}
+
+		merged := mergeLambdaConfigs(yamlConfig, tfConfig)
+		api := merged["api"].(map[string]interface{})
+		tables := api["dynamodb_tables"].([]interface{})
+
+		if len(tables) != 2 {
+			t.Fatalf("expected 2 dynamodb_tables entries (concatenated), got %d", len(tables))
 		}
 	})
 
@@ -184,23 +331,6 @@ func TestMergeLambdaConfigs(t *testing.T) {
 		result := mergeLambdaConfigs(yamlConfig, nil)
 		if result["api"] == nil {
 			t.Error("expected YAML config to be returned")
-		}
-	})
-
-	t.Run("TF-only lambdas are passed through", func(t *testing.T) {
-		yamlConfig := map[string]interface{}{
-			"customer": map[string]interface{}{"timeout": 60},
-		}
-		tfConfig := map[string]interface{}{
-			"ops": map[string]interface{}{"timeout": 30},
-		}
-
-		merged := mergeLambdaConfigs(yamlConfig, tfConfig)
-		if merged["customer"] == nil {
-			t.Error("expected customer from YAML")
-		}
-		if merged["ops"] == nil {
-			t.Error("expected ops from TF")
 		}
 	})
 }

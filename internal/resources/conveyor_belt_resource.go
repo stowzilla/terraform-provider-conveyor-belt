@@ -78,6 +78,7 @@ type DispatcherResourceModel struct {
 	// Lambda configuration overrides
 	LambdaConfig    types.Dynamic `tfsdk:"lambda_config"`
 	LambdaConfigDir types.String  `tfsdk:"lambda_config_dir"`
+	LambdaEnvRefs   types.Map    `tfsdk:"lambda_env_refs"`
 
 	// Alarm configuration
 	AlarmConfig types.Object `tfsdk:"alarm_config"`
@@ -210,6 +211,13 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					"Each file is named <lambda>.yml and defines timeout, memory_size, env_vars, env_keys, " +
 					"and resource access per environment. Values from lambda_config (Terraform) override YAML values.",
 				Optional: true,
+			},
+			"lambda_env_refs": schema.MapAttribute{
+				Description: "Map of reference names to their resolved values. Used by YAML config files " +
+					"to reference dynamic Terraform values via ref(name) syntax in env_vars. " +
+					"Example: {cognito_user_pool_id = aws_cognito_user_pool.main.id}",
+				Optional:    true,
+				ElementType: types.StringType,
 			},
 			"alarm_config": schema.SingleNestedAttribute{
 				Description: "CloudWatch alarm configuration for Lambda functions",
@@ -1304,7 +1312,17 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 	// Load YAML-based lambda config from lambda_config_dir if provided
 	if !model.LambdaConfigDir.IsNull() && !model.LambdaConfigDir.IsUnknown() {
 		configDir := model.LambdaConfigDir.ValueString()
-		yamlConfig, err := loadLambdaConfigFromDir(configDir, config.Environment)
+
+		// Extract lambda_env_refs for ref() resolution
+		envRefs := make(map[string]string)
+		if !model.LambdaEnvRefs.IsNull() && !model.LambdaEnvRefs.IsUnknown() {
+			diags := model.LambdaEnvRefs.ElementsAs(ctx, &envRefs, false)
+			if diags.HasError() {
+				return nil, fmt.Errorf("failed to extract lambda_env_refs")
+			}
+		}
+
+		yamlConfig, err := loadLambdaConfigFromDir(configDir, config.Environment, envRefs, config.AppName, config.AwsRegion, config.AwsAccountId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load lambda_config_dir: %w", err)
 		}
