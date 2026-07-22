@@ -76,7 +76,9 @@ type DispatcherResourceModel struct {
 	SuppressTableEnvVars types.Bool   `tfsdk:"suppress_table_env_vars"`
 
 	// Lambda configuration overrides
-	LambdaConfig types.Dynamic `tfsdk:"lambda_config"`
+	LambdaConfig    types.Dynamic `tfsdk:"lambda_config"`
+	LambdaConfigDir types.String  `tfsdk:"lambda_config_dir"`
+	LambdaEnvRefs   types.Map    `tfsdk:"lambda_env_refs"`
 
 	// Alarm configuration
 	AlarmConfig types.Object `tfsdk:"alarm_config"`
@@ -203,6 +205,19 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Per-lambda Lambda configuration overrides. Keys are lambda names (or 'shared' for all). " +
 					"Values can include: env_vars, timeout, memory_size, dynamodb_tables, s3_buckets, ses_emails, sns_triggers, sqs_triggers",
 				Optional: true,
+			},
+			"lambda_config_dir": schema.StringAttribute{
+				Description: "Path to a directory containing per-lambda YAML config files (database.yml style). " +
+					"Each file is named <lambda>.yml and defines timeout, memory_size, env_vars, env_keys, " +
+					"and resource access per environment. Values from lambda_config (Terraform) override YAML values.",
+				Optional: true,
+			},
+			"lambda_env_refs": schema.MapAttribute{
+				Description: "Map of reference names to their resolved values. Used by YAML config files " +
+					"to reference dynamic Terraform values via ref(name) syntax in env_vars. " +
+					"Example: {cognito_user_pool_id = aws_cognito_user_pool.main.id}",
+				Optional:    true,
+				ElementType: types.StringType,
 			},
 			"alarm_config": schema.SingleNestedAttribute{
 				Description: "CloudWatch alarm configuration for Lambda functions",
@@ -504,13 +519,16 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	})
 
 	// Extract lambda_config from plan
-	lambdaConfig, err := r.extractLambdaConfig(ctx, &plan)
-	if err != nil {
-		tflog.Error(ctx, "[CONVEYOR-BELT_PLAN] Failed to extract lambda_config", map[string]interface{}{
-			"error": err.Error(),
+	// Build the full config using the same path as Create/Update to guarantee
+	// identical hash computation (avoids plan/apply hash drift).
+	planConfig, buildErr := r.buildConfigFromModel(ctx, &plan)
+	if buildErr != nil {
+		tflog.Error(ctx, "[CONVEYOR-BELT_PLAN] Failed to build config from model", map[string]interface{}{
+			"error": buildErr.Error(),
 		})
 		return
 	}
+	lambdaConfig := planConfig.LambdaConfig
 
 	// Extract tables from plan for hash calculation
 	var readOnlyTables, readWriteTables []string
@@ -1293,6 +1311,30 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract lambda_config: %w", err)
 	}
+
+	// Load YAML-based lambda config from lambda_config_dir if provided
+	if !model.LambdaConfigDir.IsNull() && !model.LambdaConfigDir.IsUnknown() {
+		configDir := model.LambdaConfigDir.ValueString()
+
+		// Extract lambda_env_refs for ref() resolution
+		envRefs := make(map[string]string)
+		if !model.LambdaEnvRefs.IsNull() && !model.LambdaEnvRefs.IsUnknown() {
+			diags := model.LambdaEnvRefs.ElementsAs(ctx, &envRefs, false)
+			if diags.HasError() {
+				return nil, fmt.Errorf("failed to extract lambda_env_refs")
+			}
+		}
+
+		yamlConfig, err := loadLambdaConfigFromDir(configDir, config.Environment, envRefs, config.AppName, config.AwsRegion, config.AwsAccountId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load lambda_config_dir: %w", err)
+		}
+		if yamlConfig != nil {
+			// Merge: YAML base, TF lambda_config overrides
+			lambdaConfig = mergeLambdaConfigs(yamlConfig, lambdaConfig)
+		}
+	}
+
 	config.LambdaConfig = lambdaConfig
 
 	// Extract custom domain name
@@ -2424,15 +2466,9 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	// Extract lambda_config
-	lambdaConfig, err := r.extractLambdaConfig(ctx, &plan)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Failed to extract lambda_config",
-			err.Error(),
-		)
-		return
-	}
+	// Extract lambda_config — use the fully merged config from buildConfigFromModel
+	// which includes YAML + TF overrides (same as what ModifyPlan uses for hash computation).
+	lambdaConfig := config.LambdaConfig
 
 	// Extract current lambdas and gateways (including from source directory)
 	newLambdas, newGateways := r.extractResourcesWithSourceDir(routes, lambdaConfig, config.LambdaSourceDir)

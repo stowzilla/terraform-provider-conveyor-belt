@@ -5,6 +5,31 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-07-22
+
+### Added
+
+- **`lambda_config_dir` attribute** — Read per-lambda YAML config files (database.yml style) from a directory. Each file defines timeout, memory_size, env_vars, and DynamoDB table access per environment. YAML values are merged with the HCL `lambda_config` variable (HCL wins on conflicts).
+
+- **`lambda_env_refs` attribute** — Flat map of reference names to Terraform-resolved values. YAML env_vars use `ref(name)` syntax to inject dynamic values (Cognito IDs, bucket names, etc.) without raw HCL in the YAML.
+
+- **DynamoDB table-by-name in YAML** — Reference DynamoDB tables by logical name instead of ARN. The provider builds ARNs by convention (`arn:aws:dynamodb:{region}:{account}:table/{app}-{env}-{table}`). Supports shorthand (`users: [BatchGetItem]`) and expanded form with indexes.
+
+- **DynamoDB permission shorthand** — Permission names auto-prefixed with `dynamodb:` if no colon is present (e.g., `BatchWriteItem` → `dynamodb:BatchWriteItem`).
+
+- **Index support in YAML** — Nest indexes under their parent table with their own permissions:
+  ```yaml
+  dynamodb_tables:
+    slots:
+      permissions: [BatchWriteItem]
+      indexes:
+        SponsorIndex: [Query]
+  ```
+
+### Fixed
+
+- Plan/apply hash consistency when using `lambda_config_dir` — Plan and Update now use the same `buildConfigFromModel` code path for config construction, eliminating hash drift.
+
 ## [0.0.3] - 2026-06-26
 
 ### Changed
