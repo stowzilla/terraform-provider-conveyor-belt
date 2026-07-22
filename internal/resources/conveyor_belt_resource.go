@@ -519,43 +519,16 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	})
 
 	// Extract lambda_config from plan
-	lambdaConfig, err := r.extractLambdaConfig(ctx, &plan)
-	if err != nil {
-		tflog.Error(ctx, "[CONVEYOR-BELT_PLAN] Failed to extract lambda_config", map[string]interface{}{
-			"error": err.Error(),
+	// Build the full config using the same path as Create/Update to guarantee
+	// identical hash computation (avoids plan/apply hash drift).
+	planConfig, buildErr := r.buildConfigFromModel(ctx, &plan)
+	if buildErr != nil {
+		tflog.Error(ctx, "[CONVEYOR-BELT_PLAN] Failed to build config from model", map[string]interface{}{
+			"error": buildErr.Error(),
 		})
 		return
 	}
-
-	// Load YAML-based lambda config from lambda_config_dir (same merge as buildConfigFromModel)
-	if !plan.LambdaConfigDir.IsNull() && !plan.LambdaConfigDir.IsUnknown() {
-		configDir := plan.LambdaConfigDir.ValueString()
-
-		envRefs := make(map[string]string)
-		if !plan.LambdaEnvRefs.IsNull() && !plan.LambdaEnvRefs.IsUnknown() {
-			plan.LambdaEnvRefs.ElementsAs(ctx, &envRefs, false)
-		}
-
-		// Need app_name and environment for ARN construction
-		appName := plan.AppName.ValueString()
-		environment := r.providerConfig.Environment
-		awsRegion := r.providerConfig.AwsRegion
-
-		// Get account ID for ARN construction (best effort — may not be available at plan time)
-		awsAccountId := ""
-		if accountId, err := getAwsAccountId(ctx, awsRegion); err == nil {
-			awsAccountId = accountId
-		}
-
-		yamlConfig, yamlErr := loadLambdaConfigFromDir(configDir, environment, envRefs, appName, awsRegion, awsAccountId)
-		if yamlErr != nil {
-			tflog.Warn(ctx, "[CONVEYOR-BELT_PLAN] Failed to load lambda_config_dir", map[string]interface{}{
-				"error": yamlErr.Error(),
-			})
-		} else if yamlConfig != nil {
-			lambdaConfig = mergeLambdaConfigs(yamlConfig, lambdaConfig)
-		}
-	}
+	lambdaConfig := planConfig.LambdaConfig
 
 	// Extract tables from plan for hash calculation
 	var readOnlyTables, readWriteTables []string
