@@ -275,17 +275,34 @@ func convertDynamoDBTables(tablesMap map[string]interface{}, appName, environmen
 
 	for _, tableName := range tableNames {
 		tableConfigRaw := tablesMap[tableName]
-		tableConfig, ok := tableConfigRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
 
 		// Build the table ARN from convention
 		tableArn := fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s-%s-%s",
 			awsRegion, awsAccountId, appName, environment, tableName)
 
-		// Get table-level permissions
-		if permsRaw, exists := tableConfig["permissions"]; exists {
+		// Shorthand form: table_name: [Permission1, Permission2]
+		// Value is a list — treat as permissions only.
+		if permsList, ok := tableConfigRaw.([]interface{}); ok {
+			permissions := normalizePermissions(permsList)
+			if len(permissions) > 0 {
+				entry := map[string]interface{}{
+					"table_arn":   tableArn,
+					"permissions": toInterfaceSlice(permissions),
+				}
+				result = append(result, entry)
+			}
+			continue
+		}
+
+		// Expanded form: table_name: {permissions: [...], indexes: {...}}
+		tableConfig, ok := tableConfigRaw.(map[string]interface{})
+		if !ok {
+			// nil or unsupported type — skip
+			continue
+		}
+
+		// Get table-level permissions (may be nil if only indexes are needed)
+		if permsRaw, exists := tableConfig["permissions"]; exists && permsRaw != nil {
 			permissions := normalizePermissions(permsRaw)
 			if len(permissions) > 0 {
 				entry := map[string]interface{}{
@@ -308,12 +325,26 @@ func convertDynamoDBTables(tablesMap map[string]interface{}, appName, environmen
 
 				for _, indexName := range indexNames {
 					indexConfigRaw := indexesMap[indexName]
+					indexArn := fmt.Sprintf("%s/index/%s", tableArn, indexName)
+
+					// Shorthand: IndexName: [Query]
+					if permsList, ok := indexConfigRaw.([]interface{}); ok {
+						permissions := normalizePermissions(permsList)
+						if len(permissions) > 0 {
+							entry := map[string]interface{}{
+								"table_arn":   indexArn,
+								"permissions": toInterfaceSlice(permissions),
+							}
+							result = append(result, entry)
+						}
+						continue
+					}
+
+					// Expanded: IndexName: {permissions: [Query]}
 					indexConfig, ok := indexConfigRaw.(map[string]interface{})
 					if !ok {
 						continue
 					}
-
-					indexArn := fmt.Sprintf("%s/index/%s", tableArn, indexName)
 
 					if permsRaw, exists := indexConfig["permissions"]; exists {
 						permissions := normalizePermissions(permsRaw)

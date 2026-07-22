@@ -22,10 +22,9 @@ func TestLoadLambdaConfigFromDir(t *testing.T) {
     slots:
       permissions: [BatchWriteItem]
       indexes:
-        SponsorIndex:
-          permissions: [Query]
-    users:
-      permissions: [BatchGetItem]
+        SponsorIndex: [Query]
+    users: [BatchGetItem]
+    sponsors: [BatchGetItem, PutItem, GetItem]
 
 dev:
   <<: *default
@@ -99,12 +98,12 @@ prod:
 			t.Fatalf("expected dynamodb_tables to be a slice, got %T", customer["dynamodb_tables"])
 		}
 
-		// Should have 3 entries: slots table, slots/index/SponsorIndex, users table
-		if len(tables) != 3 {
-			t.Fatalf("expected 3 dynamodb_tables entries, got %d", len(tables))
+		// Should have 4 entries: slots table, slots/index/SponsorIndex, sponsors table, users table
+		if len(tables) != 4 {
+			t.Fatalf("expected 4 dynamodb_tables entries, got %d: %v", len(tables), tables)
 		}
 
-		// Check first entry (slots table)
+		// Check first entry (slots table — sorted alphabetically, slots before sponsors before users)
 		entry0 := tables[0].(map[string]interface{})
 		expectedArn := "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-slots"
 		if entry0["table_arn"] != expectedArn {
@@ -126,11 +125,22 @@ prod:
 			t.Errorf("expected permissions=[dynamodb:Query], got %v", perms1)
 		}
 
-		// Check third entry (users table)
+		// Check third entry (sponsors table — shorthand)
 		entry2 := tables[2].(map[string]interface{})
+		expectedSponsorsArn := "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-sponsors"
+		if entry2["table_arn"] != expectedSponsorsArn {
+			t.Errorf("expected table_arn=%s, got %v", expectedSponsorsArn, entry2["table_arn"])
+		}
+		perms2 := entry2["permissions"].([]interface{})
+		if len(perms2) != 3 || perms2[0] != "dynamodb:BatchGetItem" {
+			t.Errorf("expected first permission=dynamodb:BatchGetItem, got %v", perms2)
+		}
+
+		// Check fourth entry (users table — shorthand)
+		entry3 := tables[3].(map[string]interface{})
 		expectedUsersArn := "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-users"
-		if entry2["table_arn"] != expectedUsersArn {
-			t.Errorf("expected table_arn=%s, got %v", expectedUsersArn, entry2["table_arn"])
+		if entry3["table_arn"] != expectedUsersArn {
+			t.Errorf("expected table_arn=%s, got %v", expectedUsersArn, entry3["table_arn"])
 		}
 
 		// Check worker config
@@ -255,7 +265,6 @@ func TestNormalizePermissions(t *testing.T) {
 		}
 	})
 }
-
 func TestMergeLambdaConfigs(t *testing.T) {
 	t.Run("TF env_vars override YAML env_vars per key", func(t *testing.T) {
 		yamlConfig := map[string]interface{}{
@@ -333,4 +342,69 @@ func TestMergeLambdaConfigs(t *testing.T) {
 			t.Error("expected YAML config to be returned")
 		}
 	})
+}
+
+func TestConvertDynamoDBTables_Shorthand(t *testing.T) {
+	tablesMap := map[string]interface{}{
+		// Shorthand: table name → list of permissions
+		"users":    []interface{}{"BatchGetItem"},
+		"sponsors": []interface{}{"BatchGetItem", "PutItem", "GetItem"},
+		// Expanded: table name → map with indexes
+		"slots": map[string]interface{}{
+			"permissions": nil, // no table-level permissions
+			"indexes": map[string]interface{}{
+				"SponsorIndex": map[string]interface{}{
+					"permissions": []interface{}{"Query"},
+				},
+			},
+		},
+	}
+
+	result := convertDynamoDBTables(tablesMap, "myapp", "dev", "us-east-1", "123456789012")
+
+	// slots has nil permissions, so only the index entry
+	// sponsors has 3 permissions
+	// users has 1 permission
+	// Total: 1 (slots/index) + 1 (sponsors) + 1 (users) = 3
+	if len(result) != 3 {
+		t.Fatalf("expected 3 entries, got %d: %+v", len(result), result)
+	}
+
+	// Verify slots only has the index (no table-level entry due to nil permissions)
+	foundSlotsTable := false
+	foundSlotsIndex := false
+	for _, entry := range result {
+		e := entry.(map[string]interface{})
+		arn := e["table_arn"].(string)
+		if arn == "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-slots" {
+			foundSlotsTable = true
+		}
+		if arn == "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-slots/index/SponsorIndex" {
+			foundSlotsIndex = true
+		}
+	}
+
+	if foundSlotsTable {
+		t.Error("did not expect slots table entry (permissions was nil)")
+	}
+	if !foundSlotsIndex {
+		t.Error("expected slots/index/SponsorIndex entry")
+	}
+
+	// Verify shorthand users entry
+	foundUsers := false
+	for _, entry := range result {
+		e := entry.(map[string]interface{})
+		arn := e["table_arn"].(string)
+		if arn == "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-users" {
+			foundUsers = true
+			perms := e["permissions"].([]interface{})
+			if len(perms) != 1 || perms[0] != "dynamodb:BatchGetItem" {
+				t.Errorf("expected [dynamodb:BatchGetItem], got %v", perms)
+			}
+		}
+	}
+	if !foundUsers {
+		t.Error("expected users table entry from shorthand syntax")
+	}
 }
