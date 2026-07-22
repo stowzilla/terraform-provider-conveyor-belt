@@ -527,6 +527,36 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		return
 	}
 
+	// Load YAML-based lambda config from lambda_config_dir (same merge as buildConfigFromModel)
+	if !plan.LambdaConfigDir.IsNull() && !plan.LambdaConfigDir.IsUnknown() {
+		configDir := plan.LambdaConfigDir.ValueString()
+
+		envRefs := make(map[string]string)
+		if !plan.LambdaEnvRefs.IsNull() && !plan.LambdaEnvRefs.IsUnknown() {
+			plan.LambdaEnvRefs.ElementsAs(ctx, &envRefs, false)
+		}
+
+		// Need app_name and environment for ARN construction
+		appName := plan.AppName.ValueString()
+		environment := r.providerConfig.Environment
+		awsRegion := r.providerConfig.AwsRegion
+
+		// Get account ID for ARN construction (best effort — may not be available at plan time)
+		awsAccountId := ""
+		if accountId, err := getAwsAccountId(ctx, awsRegion); err == nil {
+			awsAccountId = accountId
+		}
+
+		yamlConfig, yamlErr := loadLambdaConfigFromDir(configDir, environment, envRefs, appName, awsRegion, awsAccountId)
+		if yamlErr != nil {
+			tflog.Warn(ctx, "[CONVEYOR-BELT_PLAN] Failed to load lambda_config_dir", map[string]interface{}{
+				"error": yamlErr.Error(),
+			})
+		} else if yamlConfig != nil {
+			lambdaConfig = mergeLambdaConfigs(yamlConfig, lambdaConfig)
+		}
+	}
+
 	// Extract tables from plan for hash calculation
 	var readOnlyTables, readWriteTables []string
 	if !plan.ReadOnlyTables.IsNull() && !plan.ReadOnlyTables.IsUnknown() {
