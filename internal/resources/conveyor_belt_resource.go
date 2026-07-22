@@ -2466,15 +2466,9 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	// Extract lambda_config
-	lambdaConfig, err := r.extractLambdaConfig(ctx, &plan)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Failed to extract lambda_config",
-			err.Error(),
-		)
-		return
-	}
+	// Extract lambda_config — use the fully merged config from buildConfigFromModel
+	// which includes YAML + TF overrides (same as what ModifyPlan uses for hash computation).
+	lambdaConfig := config.LambdaConfig
 
 	// Extract current lambdas and gateways (including from source directory)
 	newLambdas, newGateways := r.extractResourcesWithSourceDir(routes, lambdaConfig, config.LambdaSourceDir)
