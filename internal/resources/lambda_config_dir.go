@@ -429,10 +429,11 @@ func mergeLambdaConfigs(yamlConfig, tfConfig map[string]interface{}) map[string]
 		}
 
 		// Both exist — deep merge the lambda configs
-		yamlMap := toMapInterface(yamlVal)
-		tfMap := toMapInterface(tfVal)
+		// Use extractMapValue which handles both plain maps and Terraform framework types
+		yamlMap, yamlOk := extractMapValue(yamlVal)
+		tfMap, tfOk := extractMapValue(tfVal)
 
-		if yamlMap != nil && tfMap != nil {
+		if yamlOk && tfOk {
 			result[lambdaName] = deepMergeLambdaEntry(yamlMap, tfMap)
 		} else {
 			// TF wins if we can't merge
@@ -455,8 +456,8 @@ func deepMergeLambdaEntry(base, override map[string]interface{}) map[string]inte
 		switch k {
 		case "env_vars":
 			// Merge env_vars maps (TF overrides per key)
-			baseEnvVars := toMapInterface(result["env_vars"])
-			overrideEnvVars := toMapInterface(v)
+			baseEnvVars, _ := extractMapValue(result["env_vars"])
+			overrideEnvVars, _ := extractMapValue(v)
 			if baseEnvVars != nil && overrideEnvVars != nil {
 				merged := make(map[string]interface{})
 				for ek, ev := range baseEnvVars {
@@ -466,6 +467,8 @@ func deepMergeLambdaEntry(base, override map[string]interface{}) map[string]inte
 					merged[ek] = ev
 				}
 				result[k] = merged
+			} else if overrideEnvVars != nil {
+				result[k] = overrideEnvVars
 			} else {
 				result[k] = v
 			}
