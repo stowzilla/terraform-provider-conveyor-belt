@@ -76,7 +76,8 @@ type DispatcherResourceModel struct {
 	SuppressTableEnvVars types.Bool   `tfsdk:"suppress_table_env_vars"`
 
 	// Lambda configuration overrides
-	LambdaConfig types.Dynamic `tfsdk:"lambda_config"`
+	LambdaConfig    types.Dynamic `tfsdk:"lambda_config"`
+	LambdaConfigDir types.String  `tfsdk:"lambda_config_dir"`
 
 	// Alarm configuration
 	AlarmConfig types.Object `tfsdk:"alarm_config"`
@@ -202,6 +203,12 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"lambda_config": schema.DynamicAttribute{
 				Description: "Per-lambda Lambda configuration overrides. Keys are lambda names (or 'shared' for all). " +
 					"Values can include: env_vars, timeout, memory_size, dynamodb_tables, s3_buckets, ses_emails, sns_triggers, sqs_triggers",
+				Optional: true,
+			},
+			"lambda_config_dir": schema.StringAttribute{
+				Description: "Path to a directory containing per-lambda YAML config files (database.yml style). " +
+					"Each file is named <lambda>.yml and defines timeout, memory_size, env_vars, env_keys, " +
+					"and resource access per environment. Values from lambda_config (Terraform) override YAML values.",
 				Optional: true,
 			},
 			"alarm_config": schema.SingleNestedAttribute{
@@ -1293,6 +1300,20 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract lambda_config: %w", err)
 	}
+
+	// Load YAML-based lambda config from lambda_config_dir if provided
+	if !model.LambdaConfigDir.IsNull() && !model.LambdaConfigDir.IsUnknown() {
+		configDir := model.LambdaConfigDir.ValueString()
+		yamlConfig, err := loadLambdaConfigFromDir(configDir, config.Environment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load lambda_config_dir: %w", err)
+		}
+		if yamlConfig != nil {
+			// Merge: YAML base, TF lambda_config overrides
+			lambdaConfig = mergeLambdaConfigs(yamlConfig, lambdaConfig)
+		}
+	}
+
 	config.LambdaConfig = lambdaConfig
 
 	// Extract custom domain name
