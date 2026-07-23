@@ -2715,6 +2715,14 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 				lambdasToReconcile = append(lambdasToReconcile, lambdaName)
 				continue
 			}
+			// Always reconcile lambdas with dynamodb_tables in lambda_config.
+			// PutRolePolicy is idempotent, so this is safe on every apply.
+			// YAML-based lambda_config_dir changes aren't tracked by Terraform state,
+			// so we must reconcile to ensure IAM policies stay in sync with config.
+			if hasLambdaConfigDynamoDBTables(lambdaConfig, lambdaName) {
+				lambdasToReconcile = append(lambdasToReconcile, lambdaName)
+				continue
+			}
 			// Also reconcile lambdas with sqs_triggers that may be missing their
 			// SQS IAM policy (e.g., deployed before SQS policy support was added).
 			// PutRolePolicy is idempotent so this is safe to run on every apply.
@@ -3887,4 +3895,31 @@ func diffRoutes(oldRoutes, newRoutes []utils.Route) (added, removed []utils.Rout
 	}
 
 	return added, removed
+}
+
+// hasLambdaConfigDynamoDBTables returns true if the given lambda has any
+// dynamodb_tables entries in its lambda_config. Used to ensure IAM policies
+// are always reconciled for lambdas with custom DynamoDB permissions, since
+// YAML-based lambda_config_dir changes are not tracked by Terraform state.
+func hasLambdaConfigDynamoDBTables(lambdaConfig map[string]interface{}, lambdaName string) bool {
+	if lambdaConfig == nil {
+		return false
+	}
+	lambdaConfigRaw, exists := lambdaConfig[lambdaName]
+	if !exists {
+		return false
+	}
+	lambdaCfg, ok := extractMapValue(lambdaConfigRaw)
+	if !ok {
+		return false
+	}
+	tablesRaw, exists := lambdaCfg["dynamodb_tables"]
+	if !exists {
+		return false
+	}
+	// Check if it's a non-empty list
+	if tablesList, ok := tablesRaw.([]interface{}); ok {
+		return len(tablesList) > 0
+	}
+	return false
 }

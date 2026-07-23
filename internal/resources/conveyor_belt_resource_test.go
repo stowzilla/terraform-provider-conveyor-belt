@@ -168,3 +168,69 @@ func importContainsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestHasLambdaConfigDynamoDBTables(t *testing.T) {
+	tests := []struct {
+		name         string
+		lambdaConfig map[string]interface{}
+		lambdaName   string
+		expected     bool
+	}{
+		{
+			name:         "nil config",
+			lambdaConfig: nil,
+			lambdaName:   "api",
+			expected:     false,
+		},
+		{
+			name:         "lambda not in config",
+			lambdaConfig: map[string]interface{}{"worker": map[string]interface{}{}},
+			lambdaName:   "api",
+			expected:     false,
+		},
+		{
+			name: "lambda has no dynamodb_tables",
+			lambdaConfig: map[string]interface{}{
+				"api": map[string]interface{}{
+					"timeout": 30,
+				},
+			},
+			lambdaName: "api",
+			expected:   false,
+		},
+		{
+			name: "lambda has empty dynamodb_tables",
+			lambdaConfig: map[string]interface{}{
+				"api": map[string]interface{}{
+					"dynamodb_tables": []interface{}{},
+				},
+			},
+			lambdaName: "api",
+			expected:   false,
+		},
+		{
+			name: "lambda has dynamodb_tables entries",
+			lambdaConfig: map[string]interface{}{
+				"api": map[string]interface{}{
+					"dynamodb_tables": []interface{}{
+						map[string]interface{}{
+							"table_arn":   "arn:aws:dynamodb:us-east-1:123456789012:table/myapp-dev-slots",
+							"permissions": []interface{}{"dynamodb:BatchGetItem"},
+						},
+					},
+				},
+			},
+			lambdaName: "api",
+			expected:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasLambdaConfigDynamoDBTables(tt.lambdaConfig, tt.lambdaName)
+			if result != tt.expected {
+				t.Errorf("hasLambdaConfigDynamoDBTables() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
