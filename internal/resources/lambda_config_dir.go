@@ -34,6 +34,15 @@ import (
 //	prod:
 //	  <<: *default
 //	  memory_size: 1024
+//
+// Files prefixed with underscore (e.g. _worker_defaults.yml) are treated as
+// partials — they don't produce Lambda functions but can be referenced via the
+// "includes" key in other YAML files:
+//
+//	includes: [_worker_defaults]
+//
+// Partials are merged in order before environment resolution, so lambda-specific
+// values override partial values. Priority: shared.yml < partials (in order) < lambda.yml
 func loadLambdaConfigFromDir(dir string, environment string, envRefs map[string]string, appName string, awsRegion string, awsAccountId string) (map[string]interface{}, error) {
 	if dir == "" {
 		return nil, nil
@@ -61,6 +70,31 @@ func loadLambdaConfigFromDir(dir string, environment string, envRefs map[string]
 		return nil, fmt.Errorf("failed to read lambda_config_dir: %w", err)
 	}
 
+	// First pass: load all partials (underscore-prefixed files) into a map
+	partials := make(map[string]map[string]interface{})
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		baseName := strings.TrimSuffix(strings.TrimSuffix(name, ".yml"), ".yaml")
+		if !strings.HasPrefix(baseName, "_") {
+			continue
+		}
+		filePath := filepath.Join(absDir, name)
+		rawData, err := loadRawYAML(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load partial %s: %w", filePath, err)
+		}
+		if rawData != nil {
+			partials[baseName] = rawData
+		}
+	}
+
+	// Second pass: load lambda config files (non-underscore-prefixed)
 	result := make(map[string]interface{})
 
 	for _, entry := range entries {
@@ -73,9 +107,15 @@ func loadLambdaConfigFromDir(dir string, environment string, envRefs map[string]
 		}
 
 		lambdaName := strings.TrimSuffix(strings.TrimSuffix(name, ".yml"), ".yaml")
+
+		// Skip underscore-prefixed files — they're partials, not lambdas
+		if strings.HasPrefix(lambdaName, "_") {
+			continue
+		}
+
 		filePath := filepath.Join(absDir, name)
 
-		config, err := loadSingleLambdaConfig(filePath, environment, envRefs, appName, awsRegion, awsAccountId)
+		config, err := loadSingleLambdaConfig(filePath, environment, envRefs, appName, awsRegion, awsAccountId, partials)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load %s: %w", filePath, err)
 		}
@@ -88,9 +128,26 @@ func loadLambdaConfigFromDir(dir string, environment string, envRefs map[string]
 	return result, nil
 }
 
+// loadRawYAML reads a YAML file and returns the raw parsed map.
+func loadRawYAML(filePath string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+
+	return raw, nil
+}
+
 // loadSingleLambdaConfig reads a single YAML file and resolves the config for
 // the given environment. It merges default < environment-specific.
-func loadSingleLambdaConfig(filePath string, environment string, envRefs map[string]string, appName string, awsRegion string, awsAccountId string) (map[string]interface{}, error) {
+// If the file declares "includes", those partials are merged underneath the
+// file's own config (partial < file-specific).
+func loadSingleLambdaConfig(filePath string, environment string, envRefs map[string]string, appName string, awsRegion string, awsAccountId string, partials map[string]map[string]interface{}) (map[string]interface{}, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -105,14 +162,40 @@ func loadSingleLambdaConfig(filePath string, environment string, envRefs map[str
 		return nil, nil
 	}
 
-	// Get default config
+	// Resolve includes: merge partial configs under this file's config
+	// Each partial's environment block is resolved the same way.
+	var partialBase map[string]interface{}
+	if includesRaw, exists := raw["includes"]; exists {
+		if includesList, ok := includesRaw.([]interface{}); ok {
+			for _, inc := range includesList {
+				incName, ok := inc.(string)
+				if !ok {
+					continue
+				}
+				// Ensure underscore prefix for lookup
+				if !strings.HasPrefix(incName, "_") {
+					incName = "_" + incName
+				}
+				partialRaw, exists := partials[incName]
+				if !exists {
+					continue
+				}
+				// Resolve the partial's environment config
+				partialDefault := extractYAMLMap(partialRaw, "default")
+				partialEnv := extractYAMLMap(partialRaw, environment)
+				partialMerged := deepMergeYAML(partialDefault, partialEnv)
+				partialBase = deepMergeYAML(partialBase, partialMerged)
+			}
+		}
+	}
+
+	// Get this file's config
 	base := extractYAMLMap(raw, "default")
-
-	// Get environment-specific config
 	envOverride := extractYAMLMap(raw, environment)
+	fileMerged := deepMergeYAML(base, envOverride)
 
-	// Merge: default < environment
-	merged := deepMergeYAML(base, envOverride)
+	// Final merge: partials < file-specific
+	merged := deepMergeYAML(partialBase, fileMerged)
 
 	if len(merged) == 0 {
 		return nil, nil

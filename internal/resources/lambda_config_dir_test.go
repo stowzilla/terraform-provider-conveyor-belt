@@ -522,6 +522,367 @@ func TestConvertSQSTriggers(t *testing.T) {
 	})
 }
 
+func TestIncludesPartialSupport(t *testing.T) {
+	t.Run("underscore-prefixed files are not treated as lambdas", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Regular lambda file
+		apiYAML := `default:
+  timeout: 30
+  memory_size: 512
+`
+		if err := os.WriteFile(filepath.Join(dir, "api.yml"), []byte(apiYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Partial file — should NOT produce a lambda entry
+		partialYAML := `default:
+  timeout: 900
+  memory_size: 1024
+  ephemeral_storage: 2048
+`
+		if err := os.WriteFile(filepath.Join(dir, "_worker_defaults.yml"), []byte(partialYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, exists := config["_worker_defaults"]; exists {
+			t.Error("underscore-prefixed file should not produce a lambda entry")
+		}
+		if _, exists := config["api"]; !exists {
+			t.Error("expected api lambda entry")
+		}
+		if len(config) != 1 {
+			t.Errorf("expected exactly 1 lambda entry, got %d: %v", len(config), config)
+		}
+	})
+
+	t.Run("includes merges partial config under lambda config", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Partial: worker defaults
+		partialYAML := `default:
+  timeout: 900
+  memory_size: 1024
+  ephemeral_storage: 2048
+  env_vars:
+    QUEUE_URL: ref(queue_url)
+`
+		if err := os.WriteFile(filepath.Join(dir, "_worker_defaults.yml"), []byte(partialYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Lambda that includes the partial and overrides memory_size
+		bgYAML := `includes: [_worker_defaults]
+
+default:
+  memory_size: 2048
+  env_vars:
+    WORKER_TYPE: background
+`
+		if err := os.WriteFile(filepath.Join(dir, "background.yml"), []byte(bgYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		envRefs := map[string]string{"queue_url": "https://sqs.us-east-1.amazonaws.com/123/my-queue"}
+
+		config, err := loadLambdaConfigFromDir(dir, "dev", envRefs, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		bg, ok := config["background"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected background config, got %T", config["background"])
+		}
+
+		// timeout inherited from partial
+		if bg["timeout"] != 900 {
+			t.Errorf("expected timeout=900 from partial, got %v", bg["timeout"])
+		}
+
+		// memory_size overridden by lambda file
+		if bg["memory_size"] != 2048 {
+			t.Errorf("expected memory_size=2048 (overridden), got %v", bg["memory_size"])
+		}
+
+		// ephemeral_storage inherited from partial
+		if bg["ephemeral_storage"] != 2048 {
+			t.Errorf("expected ephemeral_storage=2048 from partial, got %v", bg["ephemeral_storage"])
+		}
+
+		// env_vars should be merged (both partial's and lambda's)
+		envVars, ok := bg["env_vars"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected env_vars map, got %T", bg["env_vars"])
+		}
+		if envVars["QUEUE_URL"] != "https://sqs.us-east-1.amazonaws.com/123/my-queue" {
+			t.Errorf("expected QUEUE_URL from partial, got %v", envVars["QUEUE_URL"])
+		}
+		if envVars["WORKER_TYPE"] != "background" {
+			t.Errorf("expected WORKER_TYPE from lambda file, got %v", envVars["WORKER_TYPE"])
+		}
+	})
+
+	t.Run("includes without underscore prefix still resolves", func(t *testing.T) {
+		dir := t.TempDir()
+
+		partialYAML := `default:
+  timeout: 120
+`
+		if err := os.WriteFile(filepath.Join(dir, "_api_defaults.yml"), []byte(partialYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Reference without underscore — should still resolve
+		lambdaYAML := `includes: [api_defaults]
+
+default:
+  memory_size: 256
+`
+		if err := os.WriteFile(filepath.Join(dir, "webhooks.yml"), []byte(lambdaYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		webhooks, ok := config["webhooks"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected webhooks config, got %T", config["webhooks"])
+		}
+
+		if webhooks["timeout"] != 120 {
+			t.Errorf("expected timeout=120 from partial (referenced without underscore), got %v", webhooks["timeout"])
+		}
+		if webhooks["memory_size"] != 256 {
+			t.Errorf("expected memory_size=256, got %v", webhooks["memory_size"])
+		}
+	})
+
+	t.Run("multiple includes merge in order", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// First partial
+		partial1 := `default:
+  timeout: 300
+  memory_size: 512
+  env_vars:
+    SHARED_A: from_first
+    SHARED_B: from_first
+`
+		if err := os.WriteFile(filepath.Join(dir, "_base.yml"), []byte(partial1), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Second partial (overrides first)
+		partial2 := `default:
+  memory_size: 1024
+  env_vars:
+    SHARED_B: from_second
+    UNIQUE_C: from_second
+`
+		if err := os.WriteFile(filepath.Join(dir, "_heavy.yml"), []byte(partial2), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Lambda includes both in order
+		lambdaYAML := `includes: [_base, _heavy]
+
+default:
+  env_vars:
+    LAMBDA_SPECIFIC: yes
+`
+		if err := os.WriteFile(filepath.Join(dir, "processor.yml"), []byte(lambdaYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		proc, ok := config["processor"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected processor config, got %T", config["processor"])
+		}
+
+		// timeout from first partial (second doesn't override it)
+		if proc["timeout"] != 300 {
+			t.Errorf("expected timeout=300 from _base, got %v", proc["timeout"])
+		}
+
+		// memory_size from second partial (overrides first)
+		if proc["memory_size"] != 1024 {
+			t.Errorf("expected memory_size=1024 from _heavy, got %v", proc["memory_size"])
+		}
+
+		envVars, ok := proc["env_vars"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected env_vars map, got %T", proc["env_vars"])
+		}
+
+		// SHARED_A from first (not overridden)
+		if envVars["SHARED_A"] != "from_first" {
+			t.Errorf("expected SHARED_A=from_first, got %v", envVars["SHARED_A"])
+		}
+		// SHARED_B overridden by second partial
+		if envVars["SHARED_B"] != "from_second" {
+			t.Errorf("expected SHARED_B=from_second, got %v", envVars["SHARED_B"])
+		}
+		// UNIQUE_C from second partial
+		if envVars["UNIQUE_C"] != "from_second" {
+			t.Errorf("expected UNIQUE_C=from_second, got %v", envVars["UNIQUE_C"])
+		}
+		// LAMBDA_SPECIFIC from the lambda file (overrides all)
+		if envVars["LAMBDA_SPECIFIC"] != "yes" {
+			t.Errorf("expected LAMBDA_SPECIFIC=yes, got %v", envVars["LAMBDA_SPECIFIC"])
+		}
+	})
+
+	t.Run("includes respects environment overrides in partials", func(t *testing.T) {
+		dir := t.TempDir()
+
+		partialYAML := `default: &default
+  timeout: 300
+  memory_size: 512
+
+dev:
+  <<: *default
+  memory_size: 256
+
+prod:
+  <<: *default
+  memory_size: 2048
+`
+		if err := os.WriteFile(filepath.Join(dir, "_env_aware.yml"), []byte(partialYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		lambdaYAML := `includes: [_env_aware]
+
+default:
+  timeout: 60
+`
+		if err := os.WriteFile(filepath.Join(dir, "api.yml"), []byte(lambdaYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Test dev environment
+		configDev, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		api := configDev["api"].(map[string]interface{})
+		// timeout overridden by lambda file
+		if api["timeout"] != 60 {
+			t.Errorf("expected timeout=60 (lambda override), got %v", api["timeout"])
+		}
+		// memory_size from partial's dev environment
+		if api["memory_size"] != 256 {
+			t.Errorf("expected memory_size=256 from partial dev, got %v", api["memory_size"])
+		}
+
+		// Test prod environment
+		configProd, err := loadLambdaConfigFromDir(dir, "prod", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		apiProd := configProd["api"].(map[string]interface{})
+		if apiProd["memory_size"] != 2048 {
+			t.Errorf("expected memory_size=2048 from partial prod, got %v", apiProd["memory_size"])
+		}
+	})
+
+	t.Run("missing partial in includes is silently ignored", func(t *testing.T) {
+		dir := t.TempDir()
+
+		lambdaYAML := `includes: [_nonexistent]
+
+default:
+  timeout: 30
+`
+		if err := os.WriteFile(filepath.Join(dir, "api.yml"), []byte(lambdaYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		api := config["api"].(map[string]interface{})
+		if api["timeout"] != 30 {
+			t.Errorf("expected timeout=30, got %v", api["timeout"])
+		}
+	})
+
+	t.Run("shared.yml still works alongside partials", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// shared.yml — global defaults for all lambdas (handled downstream)
+		sharedYAML := `default:
+  timeout: 30
+  runtime: ruby3.4
+`
+		if err := os.WriteFile(filepath.Join(dir, "shared.yml"), []byte(sharedYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Partial — worker subset defaults
+		partialYAML := `default:
+  timeout: 900
+  ephemeral_storage: 2048
+`
+		if err := os.WriteFile(filepath.Join(dir, "_worker.yml"), []byte(partialYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Lambda using the partial
+		lambdaYAML := `includes: [_worker]
+
+default:
+  env_vars:
+    JOB_TYPE: batch
+`
+		if err := os.WriteFile(filepath.Join(dir, "batch.yml"), []byte(lambdaYAML), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		config, err := loadLambdaConfigFromDir(dir, "dev", nil, "myapp", "us-east-1", "123456789012")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// shared.yml still produces a "shared" entry (processed downstream)
+		if _, exists := config["shared"]; !exists {
+			t.Error("expected shared entry for downstream processing")
+		}
+
+		// _worker.yml does NOT produce an entry
+		if _, exists := config["_worker"]; exists {
+			t.Error("partial should not produce a lambda entry")
+		}
+
+		// batch.yml inherits from _worker partial
+		batch := config["batch"].(map[string]interface{})
+		if batch["timeout"] != 900 {
+			t.Errorf("expected timeout=900 from _worker partial, got %v", batch["timeout"])
+		}
+		if batch["ephemeral_storage"] != 2048 {
+			t.Errorf("expected ephemeral_storage=2048 from _worker partial, got %v", batch["ephemeral_storage"])
+		}
+	})
+}
+
 func TestRuntimePassthrough(t *testing.T) {
 	dir := t.TempDir()
 

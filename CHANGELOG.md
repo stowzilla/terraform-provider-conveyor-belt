@@ -5,6 +5,26 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2026-07-23
+
+### Added
+
+- **`includes` with underscore partials** — Share config between a subset of lambdas without affecting all. Create partial files prefixed with `_` (e.g., `_worker_defaults.yml`) and reference them via the `includes` key:
+  ```yaml
+  # config/lambda/_worker_defaults.yml
+  default:
+    timeout: 900
+    memory_size: 1024
+    ephemeral_storage: 2048
+
+  # config/lambda/background.yml
+  includes: [_worker_defaults]
+  default:
+    env_vars:
+      JOB_TYPE: batch
+  ```
+  Partials support environment-specific overrides (dev/prod blocks) just like regular configs. Multiple includes merge in order, and lambda-specific values always win. Priority: `shared.yml` < partials (in order) < lambda file.
+
 ## [0.0.6] - 2026-07-22
 
 ### Added
