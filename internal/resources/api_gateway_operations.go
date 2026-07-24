@@ -591,6 +591,104 @@ func (ops *ApiGatewayOperations) ConfigureGatewayResponses(ctx context.Context, 
 	return nil
 }
 
+// RepairCorsHeaders iterates all resources in the API and ensures OPTIONS methods
+// have the current CORS Allow-Headers value. This handles the case where the provider's
+// hardcoded header list changes but routes haven't, so the normal update path is skipped.
+func (ops *ApiGatewayOperations) RepairCorsHeaders(ctx context.Context, apiId string, config *DispatcherConfig, routes []utils.Route) error {
+	expectedHeaders := "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'"
+
+	resources, err := ops.getAllResources(ctx, apiId)
+	if err != nil {
+		return fmt.Errorf("failed to list resources for CORS repair: %w", err)
+	}
+
+	repaired := 0
+	for _, resource := range resources {
+		resourceId := aws.ToString(resource.Id)
+
+		// Check if OPTIONS method exists
+		_, err := ops.client.GetMethod(ctx, &apigateway.GetMethodInput{
+			RestApiId:  aws.String(apiId),
+			ResourceId: aws.String(resourceId),
+			HttpMethod: aws.String("OPTIONS"),
+		})
+		if err != nil {
+			// No OPTIONS method on this resource — skip
+			continue
+		}
+
+		// Get integration response
+		integResp, err := ops.client.GetIntegrationResponse(ctx, &apigateway.GetIntegrationResponseInput{
+			RestApiId:  aws.String(apiId),
+			ResourceId: aws.String(resourceId),
+			HttpMethod: aws.String("OPTIONS"),
+			StatusCode: aws.String("200"),
+		})
+		if err != nil {
+			// No integration response — skip (will be fixed by full repair if routes change)
+			continue
+		}
+
+		// Check if Allow-Headers is current
+		if integResp.ResponseParameters != nil {
+			currentHeaders := integResp.ResponseParameters["method.response.header.Access-Control-Allow-Headers"]
+			if currentHeaders == expectedHeaders {
+				continue // Already up to date
+			}
+		}
+
+		// Repair: update integration response with current headers
+		frontendUrl := GetCORSOriginForConfig(config)
+		path := aws.ToString(resource.Path)
+
+		_, putErr := ops.client.PutIntegrationResponse(ctx, &apigateway.PutIntegrationResponseInput{
+			RestApiId:  aws.String(apiId),
+			ResourceId: aws.String(resourceId),
+			HttpMethod: aws.String("OPTIONS"),
+			StatusCode: aws.String("200"),
+			ResponseParameters: map[string]string{
+				"method.response.header.Access-Control-Allow-Origin":  fmt.Sprintf("'%s'", frontendUrl),
+				"method.response.header.Access-Control-Allow-Methods": func() string {
+					methods := utils.GetMethodsForPath(routes, path)
+					methodSet := make(map[string]bool)
+					for _, m := range methods {
+						methodSet[m] = true
+					}
+					methodSet["OPTIONS"] = true
+					sorted := make([]string, 0, len(methodSet))
+					for m := range methodSet {
+						sorted = append(sorted, m)
+					}
+					sort.Strings(sorted)
+					return "'" + strings.Join(sorted, ",") + "'"
+				}(),
+				"method.response.header.Access-Control-Allow-Headers": expectedHeaders,
+				"method.response.header.Access-Control-Max-Age":       "'86400'",
+			},
+			ResponseTemplates: map[string]string{
+				"application/json": `{}`,
+			},
+		})
+		if putErr != nil {
+			utils.Warn(ctx, "Failed to repair CORS headers on OPTIONS method", map[string]interface{}{
+				"resource_id": resourceId,
+				"path":        path,
+				"error":       putErr.Error(),
+			})
+			continue
+		}
+		repaired++
+	}
+
+	if repaired > 0 {
+		utils.Info(ctx, "Repaired CORS headers on OPTIONS methods", map[string]interface{}{
+			"count": repaired,
+		})
+	}
+
+	return nil
+}
+
 // getResponseTemplate returns the appropriate response template based on response type and config
 func (ops *ApiGatewayOperations) getResponseTemplate(responseType apigatewayTypes.GatewayResponseType, config *DispatcherConfig) string {
 	if config.FriendlyErrors {

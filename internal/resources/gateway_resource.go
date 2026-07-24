@@ -735,6 +735,14 @@ func (r *gatewayResource) Update(ctx context.Context, req resource.UpdateRequest
 		// Continue anyway - gateway responses are important but not critical
 	}
 
+	// Repair CORS Allow-Headers on existing OPTIONS methods (idempotent, skips if already current)
+	if err := r.apiGatewayOps.RepairCorsHeaders(ctx, apiId, config, newRoutes); err != nil {
+		utils.Warn(ctx, "Failed to repair CORS headers on OPTIONS methods", map[string]interface{}{
+			"api_gateway_name": apiGatewayName,
+			"error":            err.Error(),
+		})
+	}
+
 	// Check if routes changed
 	if newRoutesHash != oldRoutesHash {
 		utils.Info(ctx, "Routes changed, updating API Gateway resources...")

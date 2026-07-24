@@ -1209,9 +1209,12 @@ func (p *ParallelRouteProcessor) createCorsOptionsMethod(ctx context.Context, ap
 				return p.ensureCorsResponses(ctx, apiId, resourceId, routes, path)
 			}
 
-			// Responses exist — verify CORS origin header is current
-			expectedOrigin := "'" + GetCORSOriginForConfig(p.config) + "'"
+			// Responses exist — verify CORS headers are current
 			if integResp != nil && integResp.ResponseParameters != nil {
+				needsUpdate := false
+
+				// Check origin
+				expectedOrigin := "'" + GetCORSOriginForConfig(p.config) + "'"
 				currentOrigin := integResp.ResponseParameters["method.response.header.Access-Control-Allow-Origin"]
 				if currentOrigin != expectedOrigin {
 					utils.Info(ctx, "OPTIONS CORS origin outdated - updating", map[string]interface{}{
@@ -1219,6 +1222,22 @@ func (p *ParallelRouteProcessor) createCorsOptionsMethod(ctx context.Context, ap
 						"current":     currentOrigin,
 						"expected":    expectedOrigin,
 					})
+					needsUpdate = true
+				}
+
+				// Check allowed headers
+				expectedHeaders := "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'"
+				currentHeaders := integResp.ResponseParameters["method.response.header.Access-Control-Allow-Headers"]
+				if currentHeaders != expectedHeaders {
+					utils.Info(ctx, "OPTIONS CORS allowed headers outdated - updating", map[string]interface{}{
+						"resource_id": resourceId,
+						"current":     currentHeaders,
+						"expected":    expectedHeaders,
+					})
+					needsUpdate = true
+				}
+
+				if needsUpdate {
 					return p.ensureCorsResponses(ctx, apiId, resourceId, routes, path)
 				}
 			}
