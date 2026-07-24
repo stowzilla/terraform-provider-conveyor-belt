@@ -1306,7 +1306,7 @@ func (p *ParallelRouteProcessor) ensureCorsResponses(ctx context.Context, apiId,
 				sort.Strings(sorted)
 				return "'" + strings.Join(sorted, ",") + "'"
 			}(),
-			"method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+			"method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 			"method.response.header.Access-Control-Max-Age":       "'86400'",
 		},
 		ResponseTemplates: map[string]string{

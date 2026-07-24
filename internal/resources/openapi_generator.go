@@ -427,7 +427,7 @@ func (g *OpenAPIGenerator) buildCorsOptions(routes []utils.Route, path string) m
 					"responseParameters": map[string]string{
 						"method.response.header.Access-Control-Allow-Origin":  "'" + frontendUrl + "'",
 						"method.response.header.Access-Control-Allow-Methods": "'" + allowMethods + "'",
-						"method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+						"method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 						"method.response.header.Access-Control-Max-Age":       "'86400'",
 					},
 					"responseTemplates": map[string]string{
@@ -445,7 +445,7 @@ func (g *OpenAPIGenerator) buildGatewayResponses() map[string]interface{} {
 
 	responseParams := map[string]string{
 		"gatewayresponse.header.Access-Control-Allow-Origin":  "'" + frontendUrl + "'",
-		"gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+		"gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 		"gatewayresponse.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,PATCH,OPTIONS'",
 	}
 

@@ -543,7 +543,7 @@ func (ops *ApiGatewayOperations) ConfigureGatewayResponses(ctx context.Context, 
 	// CORS headers to add to all error responses
 	responseParameters := map[string]string{
 		"gatewayresponse.header.Access-Control-Allow-Origin":  fmt.Sprintf("'%s'", frontendUrl),
-		"gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+		"gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 		"gatewayresponse.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,PATCH,OPTIONS'",
 	}
 

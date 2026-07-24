@@ -726,7 +726,7 @@ def lambda_handler(event:, context:)
     headers: {
       'Content-Type' => 'application/json',
       'Access-Control-Allow-Origin' => ENV['FRONTEND_URL'] || '*',
-      'Access-Control-Allow-Headers' => 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+      'Access-Control-Allow-Headers' => 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain',
       'Access-Control-Allow-Methods' => 'GET,POST,PUT,DELETE,PATCH,OPTIONS'
     },
     body: {

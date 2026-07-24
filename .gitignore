@@ -1,3 +1,4 @@
 bin/
 .git.bfg-report*
 tmp/
+terraform-provider-conveyor-belt
