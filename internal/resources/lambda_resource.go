@@ -108,8 +108,9 @@ func (r *lambdaResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				ElementType: types.StringType,
 			},
 			"env_vars": schema.MapAttribute{
-				Description: "Environment variables for the Lambda",
+				Description: "Environment variables for the Lambda. Marked sensitive to prevent secrets from appearing in plan output.",
 				Optional:    true,
+				Sensitive:   true,
 				ElementType: types.StringType,
 			},
 			"timeout": schema.Int64Attribute{

@@ -204,7 +204,8 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"lambda_config": schema.DynamicAttribute{
 				Description: "Per-lambda Lambda configuration overrides. Keys are lambda names (or 'shared' for all). " +
 					"Values can include: env_vars, timeout, memory_size, dynamodb_tables, s3_buckets, ses_emails, sns_triggers, sqs_triggers",
-				Optional: true,
+				Optional:  true,
+				Sensitive: true,
 			},
 			"lambda_config_dir": schema.StringAttribute{
 				Description: "Path to a directory containing per-lambda YAML config files (database.yml style). " +
@@ -3300,7 +3301,7 @@ func (r *dispatcherResource) generateOpenAPISpecsSideEffect(
 	// Project root is the parent of lambda_source_dir (e.g., lambda_source_dir="/path/to/project/lambda" → project root="/path/to/project")
 	projectRoot := filepath.Dir(config.LambdaSourceDir)
 	specDir := filepath.Join(projectRoot, ".conveyor-belt", "openapi")
-	if err := os.MkdirAll(specDir, 0755); err != nil {
+	if err := os.MkdirAll(specDir, 0700); err != nil {
 		utils.Warn(ctx, "Failed to create OpenAPI spec output directory", map[string]interface{}{
 			"dir": specDir, "error": err.Error(),
 		})
@@ -3318,7 +3319,7 @@ func (r *dispatcherResource) generateOpenAPISpecsSideEffect(
 
 		// Write spec file to disk
 		specFile := filepath.Join(specDir, gw+".json")
-		if writeErr := os.WriteFile(specFile, data, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(specFile, data, 0600); writeErr != nil {
 			utils.Warn(ctx, "Failed to write OpenAPI spec file", map[string]interface{}{
 				"file": specFile, "error": writeErr.Error(),
 			})
@@ -3414,7 +3415,7 @@ func (r *dispatcherResource) generateSpecsDuringPlan(
 
 	projectRoot := filepath.Dir(lambdaSourceDir)
 	specDir := filepath.Join(projectRoot, ".conveyor-belt", "openapi")
-	if err := os.MkdirAll(specDir, 0755); err != nil {
+	if err := os.MkdirAll(specDir, 0700); err != nil {
 		return
 	}
 
@@ -3423,7 +3424,7 @@ func (r *dispatcherResource) generateSpecsDuringPlan(
 		if err != nil {
 			continue
 		}
-		os.WriteFile(filepath.Join(specDir, gw+".json"), data, 0644)
+		os.WriteFile(filepath.Join(specDir, gw+".json"), data, 0600)
 	}
 
 	tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Wrote OpenAPI specs to .conveyor-belt/", map[string]interface{}{
