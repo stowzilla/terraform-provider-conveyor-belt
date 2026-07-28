@@ -444,15 +444,17 @@ func TestGenerateSpec_MultipleFrontendUrls(t *testing.T) {
 	gen := NewOpenAPIGenerator(config)
 	spec, _ := gen.GenerateSpec(context.Background(), "ops", testRoutes(), testLambdaARNs(), nil)
 
-	// Multiple URLs → wildcard
+	// Multiple URLs → uses first URL (not wildcard) for API Gateway-level CORS.
+	// Lambda runtime handles multi-origin validation dynamically via Belt::Helpers::CorsOrigin.
 	healthPath := spec.Paths["/health"]
 	optionsOp := healthPath["options"].(map[string]interface{})
 	integration := optionsOp["x-amazon-apigateway-integration"].(map[string]interface{})
 	responses := integration["responses"].(map[string]interface{})
 	defaultResp := responses["default"].(map[string]interface{})
 	respParams := defaultResp["responseParameters"].(map[string]string)
-	if respParams["method.response.header.Access-Control-Allow-Origin"] != "'*'" {
-		t.Errorf("expected wildcard origin for multiple frontend URLs, got %s",
+	expected := "'https://app.example.com'"
+	if respParams["method.response.header.Access-Control-Allow-Origin"] != expected {
+		t.Errorf("expected first frontend URL for multiple frontend URLs, got %s",
 			respParams["method.response.header.Access-Control-Allow-Origin"])
 	}
 }
