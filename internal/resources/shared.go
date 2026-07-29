@@ -32,26 +32,26 @@ import (
 
 // DispatcherConfig represents the provider configuration
 type DispatcherConfig struct {
-	AppName                   string
-	Environment               string
-	AwsRegion                 string
-	AwsAccountId              string
-	CognitoUserPoolArns       []string
-	FrontendUrls              []string
-	LambdaSourceDir           string
-	LambdaConfig              map[string]interface{}
-	SharedIamPolicyArns       []string
-	LambdaSharedDirs          []string
-	LambdaGemDirs             []string
-	LambdaLayerArns           []string
-	ReadOnlyTables            []string
-	ReadWriteTables           []string
-	AlarmConfig               *AlarmConfig
-	Tags                      map[string]string
-	CustomDomainName          string // Custom domain name for unified API access (e.g., "api.example.com")
-	FriendlyErrors            bool   // Enable friendly error messages for missing routes
-	SchemaSource              string // Path to schema.tf.rb for API Gateway model definitions
-	SuppressTableEnvVars      bool   // When true, do not generate *_TABLE_NAME and TABLES env vars
+	AppName              string
+	Environment          string
+	AwsRegion            string
+	AwsAccountId         string
+	CognitoUserPoolArns  []string
+	FrontendUrls         []string
+	LambdaSourceDir      string
+	LambdaConfig         map[string]interface{}
+	SharedIamPolicyArns  []string
+	LambdaSharedDirs     []string
+	LambdaGemDirs        []string
+	LambdaLayerArns      []string
+	ReadOnlyTables       []string
+	ReadWriteTables      []string
+	AlarmConfig          *AlarmConfig
+	Tags                 map[string]string
+	CustomDomainName     string // Custom domain name for unified API access (e.g., "api.example.com")
+	FriendlyErrors       bool   // Enable friendly error messages for missing routes
+	SchemaSource         string // Path to schema.tf.rb for API Gateway model definitions
+	SuppressTableEnvVars bool   // When true, do not generate *_TABLE_NAME and TABLES env vars
 	// Provider-level defaults for Lambda configuration
 	DefaultLambdaTimeout   int64
 	DefaultLambdaMemory    int64
@@ -179,22 +179,22 @@ type ResourceClients struct {
 // RouteData represents the JSON structure returned by `belt routes -f json`
 type RouteData struct {
 	Routes []struct {
-		Name          string   `json:"name"`
-		Verb          string   `json:"verb"`
-		Path          string   `json:"path"`
-		Controller    string   `json:"gateway"`
-		Action        string   `json:"lambda"`
-		Auth          string   `json:"auth"`
-		Tables        []string `json:"tables"`
-		RequestModel  string   `json:"request_model"`
-		ResponseModel string   `json:"response_model"`
-		ResponseContext string `json:"response_context"`
+		Name            string   `json:"name"`
+		Verb            string   `json:"verb"`
+		Path            string   `json:"path"`
+		Controller      string   `json:"gateway"`
+		Action          string   `json:"lambda"`
+		Auth            string   `json:"auth"`
+		Tables          []string `json:"tables"`
+		RequestModel    string   `json:"request_model"`
+		ResponseModel   string   `json:"response_model"`
+		ResponseContext string   `json:"response_context"`
 	} `json:"routes"`
 	Models []struct {
-		Name        string                          `json:"name"`
-		Description string                          `json:"description"`
-		Properties  map[string]utils.ModelProperty   `json:"properties"`
-		Required    []string                        `json:"required"`
+		Name        string                         `json:"name"`
+		Description string                         `json:"description"`
+		Properties  map[string]utils.ModelProperty `json:"properties"`
+		Required    []string                       `json:"required"`
 	} `json:"models"`
 }
 
@@ -207,7 +207,6 @@ func initializeClients(ctx context.Context, config *DispatcherConfig) (*Resource
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS config: %w", err)
 	}
-	
 
 	return &ResourceClients{
 		ApiGateway:     apigateway.NewFromConfig(awsConfig),
@@ -309,8 +308,8 @@ func executeBeltRoutesWithSchema(ctx context.Context, source, schemaPath string)
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			utils.Error(ctx, "belt routes failed", map[string]interface{}{
-				"stderr":      string(exitError.Stderr),
-				"source":      absSource,
+				"stderr": string(exitError.Stderr),
+				"source": absSource,
 			})
 		}
 		return nil, nil, fmt.Errorf("failed to execute belt routes with source %s: %w\nstderr: %s", absSource, err, stderr.String())
@@ -635,6 +634,24 @@ func calculateLambdaSourceHash(lambdaSourceDir, lambda string, sharedDirs []stri
 				hasher.Write([]byte(fmt.Sprintf("gem_dir_%s:", gemDir)))
 				hasher.Write([]byte(dirHash))
 				hasher.Write([]byte{0})
+			}
+		}
+	}
+
+	// Hash PATH remotes from Gemfile.lock (absolute agent worktrees, relative
+	// path: gems). Source changes without a lockfile bump still rebuild.
+	if lockContent, err := os.ReadFile(gemfileLockPath); err == nil {
+		projectRoot := filepath.Dir(gemfilePath)
+		for _, remote := range parsePathRemotes(string(lockContent), projectRoot) {
+			if info, err := os.Stat(remote); err == nil && info.IsDir() {
+				dirHash, err := hashDirectoryContents(remote)
+				if err == nil {
+					hasher.Write([]byte("path_gem:"))
+					hasher.Write([]byte(remote))
+					hasher.Write([]byte{0})
+					hasher.Write([]byte(dirHash))
+					hasher.Write([]byte{0})
+				}
 			}
 		}
 	}
@@ -1267,13 +1284,13 @@ func calculateResourceDiff(
 	routes []utils.Route,
 ) *ResourceDiff {
 	diff := &ResourceDiff{
-		NewGateways:             []string{},
-		DeletedGateways:         []string{},
-		ModifiedGateways:        make(map[string][]utils.Route),
-		NewLambdas:              []string{},
-		DeletedLambdas:          []string{},
-		ModifiedLambdas:         make(map[string][]utils.Route),
-		SourceChangedLambdas:    make(map[string][]utils.Route),
+		NewGateways:              []string{},
+		DeletedGateways:          []string{},
+		ModifiedGateways:         make(map[string][]utils.Route),
+		NewLambdas:               []string{},
+		DeletedLambdas:           []string{},
+		ModifiedLambdas:          make(map[string][]utils.Route),
+		SourceChangedLambdas:     make(map[string][]utils.Route),
 		ConfigOnlyChangedLambdas: make(map[string][]utils.Route),
 	}
 

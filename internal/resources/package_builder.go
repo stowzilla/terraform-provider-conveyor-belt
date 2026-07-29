@@ -69,7 +69,6 @@ func WithConfig(config *DispatcherConfig) PackageBuilderOption {
 	}
 }
 
-
 // NewPackageBuilder creates a new PackageBuilder with the given source directory
 func NewPackageBuilder(sourceDir string, opts ...PackageBuilderOption) *PackageBuilder {
 	pb := &PackageBuilder{
@@ -270,6 +269,20 @@ gem 'json', '~> 2.0'
 		}
 		utils.Info(ctx, "Copied vendor/cache into Docker build context", map[string]interface{}{
 			"path": vendorCachePath,
+		})
+	}
+
+	// path: gems install under bundler/gems/ with no specifications/ — Lambda's
+	// bare `require` can't see them. Materialize real .gem files into the build
+	// vendor/cache and pin versions in the *build* Gemfile/lock only (host-side,
+	// so absolute agent worktree paths work).
+	projectRoot := filepath.Dir(gemfilePath)
+	if gems, err := materializePathGems(ctx, sharedBuildDir, projectRoot); err != nil {
+		os.RemoveAll(sharedBuildDir)
+		return "", fmt.Errorf("path gem materialize failed: %w", err)
+	} else if len(gems) > 0 {
+		utils.Info(ctx, "Materialized path gems for Docker gem install", map[string]interface{}{
+			"gems": gems,
 		})
 	}
 
@@ -584,7 +597,6 @@ bundle clean --force`,
 	return zipData, nil
 }
 
-
 // copyFile copies a file from src to dst
 func (pb *PackageBuilder) copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
@@ -660,7 +672,7 @@ func (pb *PackageBuilder) stripVendorFat(ctx context.Context, buildDir string) {
 	// File patterns to remove (conservative: only build artifacts and documentation)
 	removeExts := map[string]bool{
 		".rdoc": true,
-		".c": true, ".h": true, ".o": true,
+		".c":    true, ".h": true, ".o": true,
 	}
 	removeNames := map[string]bool{
 		"Makefile": true, "Rakefile": true,
