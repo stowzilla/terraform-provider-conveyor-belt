@@ -189,6 +189,23 @@ func (pb *PackageBuilder) resolveGemfileLockPath() string {
 	return filepath.Join(filepath.Dir(pb.resolveGemfilePath()), "Gemfile.lock")
 }
 
+// resolveVendorCachePath finds vendor/cache for pre-built .gem files.
+// Prefers the directory next to the Gemfile (project root — Bundler's natural
+// location) so a single cache works for both local `bundle lock` and Docker
+// package builds. Falls back to lambda_source_dir/vendor/cache.
+func (pb *PackageBuilder) resolveVendorCachePath() string {
+	candidates := []string{
+		filepath.Join(filepath.Dir(pb.resolveGemfilePath()), "vendor", "cache"),
+		filepath.Join(pb.sourceDir, "vendor", "cache"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // buildSharedGems runs Docker once to install gems, returns path to vendor directory
 func (pb *PackageBuilder) buildSharedGems(ctx context.Context) (string, error) {
 	gemfilePath := pb.resolveGemfilePath()
@@ -244,15 +261,16 @@ gem 'json', '~> 2.0'
 		}
 	}
 
-	// Auto-detect vendor/cache for pre-built .gem files
-	vendorCachePath := filepath.Join(pb.sourceDir, "vendor", "cache")
-	if info, err := os.Stat(vendorCachePath); err == nil && info.IsDir() {
+	// Auto-detect vendor/cache for pre-built .gem files (Gemfile-adjacent first)
+	if vendorCachePath := pb.resolveVendorCachePath(); vendorCachePath != "" {
 		destPath := filepath.Join(sharedBuildDir, "vendor", "cache")
 		if err := pb.copyDirectory(vendorCachePath, destPath); err != nil {
 			os.RemoveAll(sharedBuildDir)
 			return "", fmt.Errorf("failed to copy vendor/cache: %w", err)
 		}
-		utils.Info(ctx, "Copied vendor/cache into Docker build context", nil)
+		utils.Info(ctx, "Copied vendor/cache into Docker build context", map[string]interface{}{
+			"path": vendorCachePath,
+		})
 	}
 
 	utils.Info(ctx, "Running Docker once to build shared gems for all Lambdas", map[string]interface{}{

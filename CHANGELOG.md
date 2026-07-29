@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`vendor/cache` resolution** — Pre-built `.gem` files are now found next to the Gemfile first (project root), then under `lambda_source_dir/vendor/cache`. Matches Bundler's natural cache location so unreleased local gems need only one copy for both `bundle lock` and Lambda packaging.
+
 ## [0.0.7] - 2026-07-23
 
 ### Added

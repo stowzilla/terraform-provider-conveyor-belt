@@ -609,14 +609,20 @@ func calculateLambdaSourceHash(lambdaSourceDir, lambda string, sharedDirs []stri
 		hasher.Write([]byte{0})
 	}
 
-	// Hash vendor/cache if present (auto-detected pre-built gems)
-	vendorCachePath := filepath.Join(absLambdaSourceDir, "vendor", "cache")
-	if info, err := os.Stat(vendorCachePath); err == nil && info.IsDir() {
-		dirHash, err := hashDirectoryContents(vendorCachePath)
-		if err == nil {
-			hasher.Write([]byte("vendor_cache:"))
-			hasher.Write([]byte(dirHash))
-			hasher.Write([]byte{0})
+	// Hash vendor/cache if present (Gemfile-adjacent first, then under lambda source)
+	vendorCacheCandidates := []string{
+		filepath.Join(filepath.Dir(gemfilePath), "vendor", "cache"),
+		filepath.Join(absLambdaSourceDir, "vendor", "cache"),
+	}
+	for _, vendorCachePath := range vendorCacheCandidates {
+		if info, err := os.Stat(vendorCachePath); err == nil && info.IsDir() {
+			dirHash, err := hashDirectoryContents(vendorCachePath)
+			if err == nil {
+				hasher.Write([]byte("vendor_cache:"))
+				hasher.Write([]byte(dirHash))
+				hasher.Write([]byte{0})
+			}
+			break
 		}
 	}
 
