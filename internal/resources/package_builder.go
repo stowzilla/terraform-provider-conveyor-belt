@@ -69,7 +69,6 @@ func WithConfig(config *DispatcherConfig) PackageBuilderOption {
 	}
 }
 
-
 // NewPackageBuilder creates a new PackageBuilder with the given source directory
 func NewPackageBuilder(sourceDir string, opts ...PackageBuilderOption) *PackageBuilder {
 	pb := &PackageBuilder{
@@ -189,6 +188,23 @@ func (pb *PackageBuilder) resolveGemfileLockPath() string {
 	return filepath.Join(filepath.Dir(pb.resolveGemfilePath()), "Gemfile.lock")
 }
 
+// resolveVendorCachePath finds vendor/cache for pre-built .gem files.
+// Prefers the directory next to the Gemfile (project root — Bundler's natural
+// location) so a single cache works for both local `bundle lock` and Docker
+// package builds. Falls back to lambda_source_dir/vendor/cache.
+func (pb *PackageBuilder) resolveVendorCachePath() string {
+	candidates := []string{
+		filepath.Join(filepath.Dir(pb.resolveGemfilePath()), "vendor", "cache"),
+		filepath.Join(pb.sourceDir, "vendor", "cache"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // buildSharedGems runs Docker once to install gems, returns path to vendor directory
 func (pb *PackageBuilder) buildSharedGems(ctx context.Context) (string, error) {
 	gemfilePath := pb.resolveGemfilePath()
@@ -244,15 +260,30 @@ gem 'json', '~> 2.0'
 		}
 	}
 
-	// Auto-detect vendor/cache for pre-built .gem files
-	vendorCachePath := filepath.Join(pb.sourceDir, "vendor", "cache")
-	if info, err := os.Stat(vendorCachePath); err == nil && info.IsDir() {
+	// Auto-detect vendor/cache for pre-built .gem files (Gemfile-adjacent first)
+	if vendorCachePath := pb.resolveVendorCachePath(); vendorCachePath != "" {
 		destPath := filepath.Join(sharedBuildDir, "vendor", "cache")
 		if err := pb.copyDirectory(vendorCachePath, destPath); err != nil {
 			os.RemoveAll(sharedBuildDir)
 			return "", fmt.Errorf("failed to copy vendor/cache: %w", err)
 		}
-		utils.Info(ctx, "Copied vendor/cache into Docker build context", nil)
+		utils.Info(ctx, "Copied vendor/cache into Docker build context", map[string]interface{}{
+			"path": vendorCachePath,
+		})
+	}
+
+	// path: gems install under bundler/gems/ with no specifications/ — Lambda's
+	// bare `require` can't see them. Materialize real .gem files into the build
+	// vendor/cache and pin versions in the *build* Gemfile/lock only (host-side,
+	// so absolute agent worktree paths work).
+	projectRoot := filepath.Dir(gemfilePath)
+	if gems, err := materializePathGems(ctx, sharedBuildDir, projectRoot); err != nil {
+		os.RemoveAll(sharedBuildDir)
+		return "", fmt.Errorf("path gem materialize failed: %w", err)
+	} else if len(gems) > 0 {
+		utils.Info(ctx, "Materialized path gems for Docker gem install", map[string]interface{}{
+			"gems": gems,
+		})
 	}
 
 	utils.Info(ctx, "Running Docker once to build shared gems for all Lambdas", map[string]interface{}{
@@ -566,7 +597,6 @@ bundle clean --force`,
 	return zipData, nil
 }
 
-
 // copyFile copies a file from src to dst
 func (pb *PackageBuilder) copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
@@ -642,7 +672,7 @@ func (pb *PackageBuilder) stripVendorFat(ctx context.Context, buildDir string) {
 	// File patterns to remove (conservative: only build artifacts and documentation)
 	removeExts := map[string]bool{
 		".rdoc": true,
-		".c": true, ".h": true, ".o": true,
+		".c":    true, ".h": true, ".o": true,
 	}
 	removeNames := map[string]bool{
 		"Makefile": true, "Rakefile": true,

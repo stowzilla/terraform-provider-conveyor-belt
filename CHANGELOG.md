@@ -5,6 +5,16 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2026-07-30
+
+### Added
+
+- **Auto-materialize Gemfile `path:` gems** — When `Gemfile.lock` has `PATH` sources, the package build host-side `gem build`s each one into the Docker context `vendor/cache/`, rewrites the *build* Gemfile to a version pin, and re-locks. Docker then installs a normal gem with `specifications/` so Lambda bare `require` works. Absolute agent worktree paths are fine. Does not touch the app's real Gemfile. Source trees listed as PATH remotes are also hashed so edits trigger rebuilds without a version bump.
+
+### Changed
+
+- **`vendor/cache` resolution** — Pre-built `.gem` files are now found next to the Gemfile first (project root), then under `lambda_source_dir/vendor/cache`. Matches Bundler's natural cache location so unreleased local gems need only one copy for both `bundle lock` and Lambda packaging.
+
 ## [0.0.7] - 2026-07-23
 
 ### Added
