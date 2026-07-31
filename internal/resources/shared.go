@@ -489,6 +489,28 @@ func calculateGatewayHash(routes []utils.Route, configFingerprint string) (strin
 	return hash, nil
 }
 
+// hasPathGemsInProject checks whether the project's Gemfile.lock contains PATH
+// remote sections (development path: gems). When present, source hashes are
+// unstable because an external worktree can be modified between plan invocations.
+func hasPathGemsInProject(lambdaSourceDir string) bool {
+	// Check Gemfile.lock in sourceDir, then parent (project root)
+	candidates := []string{
+		filepath.Join(lambdaSourceDir, "Gemfile.lock"),
+		filepath.Join(filepath.Dir(lambdaSourceDir), "Gemfile.lock"),
+	}
+	for _, lockPath := range candidates {
+		content, err := os.ReadFile(lockPath)
+		if err != nil {
+			continue
+		}
+		sources := parsePathSources(string(content))
+		if len(sources) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // hashDirectoryContents recursively hashes all files in a directory
 func hashDirectoryContents(dirPath string) (string, error) {
 	hasher := sha256.New()

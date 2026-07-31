@@ -843,6 +843,31 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		plan.SharedIamPolicyArns.ElementsAs(ctx, &sharedIamPolicyArns, false)
 	}
 
+	// Check lambda_env_refs — when unknown, ref() resolution in YAML config produces
+	// different env vars between plan and apply, causing hash drift.
+	if plan.LambdaEnvRefs.IsUnknown() {
+		hashInputsUnknown = true
+		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] LambdaEnvRefs is unknown — hash inputs incomplete")
+	}
+
+	// Check lambda_config — dynamic type may contain unknown values from resources
+	// being created in the same apply (e.g., dynamodb_tables with ARN references).
+	if plan.LambdaConfig.IsUnknown() {
+		hashInputsUnknown = true
+		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] LambdaConfig is unknown — hash inputs incomplete")
+	}
+
+	// Check read_only_tables and read_write_tables — table name lists referencing
+	// resources being created would be unknown during plan.
+	if plan.ReadOnlyTables.IsUnknown() {
+		hashInputsUnknown = true
+		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] ReadOnlyTables is unknown — hash inputs incomplete")
+	}
+	if plan.ReadWriteTables.IsUnknown() {
+		hashInputsUnknown = true
+		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] ReadWriteTables is unknown — hash inputs incomplete")
+	}
+
 	// Extract alarm config for hash calculation (must match what Update uses)
 	var alarmConfig *AlarmConfig
 	if plan.AlarmConfig.IsUnknown() {
@@ -862,14 +887,21 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		plan.RoutesHash = types.StringUnknown()
 		plan.RoutesJson = types.StringUnknown()
 
-		// Source hashes don't depend on IAM/layer/alarm config, so compute them if possible
-		newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
-		if srcErr != nil {
+		// Source hashes don't depend on IAM/layer/alarm config, so compute them if possible —
+		// UNLESS PATH gems exist in the lockfile. Path gem directories are external worktrees
+		// that can be modified between plan invocations, causing inconsistent hashes.
+		if hasPathGemsInProject(lambdaSourceDir) {
+			tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] PATH gems detected — marking source hashes as unknown (external worktree may change)")
 			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
 		} else {
-			shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
-			resp.Diagnostics.Append(d...)
-			plan.LambdaSourceHashes = shMap
+			newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
+			if srcErr != nil {
+				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+			} else {
+				shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
+				resp.Diagnostics.Append(d...)
+				plan.LambdaSourceHashes = shMap
+			}
 		}
 
 		// Gateway and model hashes don't depend on these inputs either
@@ -950,13 +982,21 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		}
 
 		// Source hashes (routes don't affect source hashes, but structure changes do)
-		newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
-		if srcErr != nil {
+		// When PATH gems exist, source hashes are unstable (external worktrees can change
+		// between plan invocations) — mark as unknown to avoid inconsistent plan errors.
+		if hasPathGemsInProject(lambdaSourceDir) {
 			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+			plan.LambdaHashes = types.MapUnknown(types.StringType)
+			tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] PATH gems detected — marking source/lambda hashes as unknown")
 		} else {
-			shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
-			resp.Diagnostics.Append(d...)
-			plan.LambdaSourceHashes = shMap
+			newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
+			if srcErr != nil {
+				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+			} else {
+				shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
+				resp.Diagnostics.Append(d...)
+				plan.LambdaSourceHashes = shMap
+			}
 		}
 
 		// Model hashes — compute per-gateway
@@ -1075,17 +1115,24 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
 			plan.LambdaConfigHashes = types.MapUnknown(types.StringType)
 		} else {
-			lhMap, d := types.MapValueFrom(ctx, types.StringType, newAllLambdaHashes)
-			resp.Diagnostics.Append(d...)
-			plan.LambdaHashes = lhMap
-
-			newSrcHashes, _ := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
-			if newSrcHashes != nil {
-				shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
-				resp.Diagnostics.Append(d...)
-				plan.LambdaSourceHashes = shMap
-			} else {
+			// When PATH gems exist, source hashes are unstable — mark as unknown
+			if hasPathGemsInProject(lambdaSourceDir) {
+				plan.LambdaHashes = types.MapUnknown(types.StringType)
 				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+				tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] PATH gems detected — marking source/lambda hashes as unknown")
+			} else {
+				lhMap, d := types.MapValueFrom(ctx, types.StringType, newAllLambdaHashes)
+				resp.Diagnostics.Append(d...)
+				plan.LambdaHashes = lhMap
+
+				newSrcHashes, _ := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
+				if newSrcHashes != nil {
+					shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
+					resp.Diagnostics.Append(d...)
+					plan.LambdaSourceHashes = shMap
+				} else {
+					plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+				}
 			}
 
 			newCfgHashes, _ := calculateAllLambdaConfigHashes(lambdas, routes, lambdaConfig, layerArns, alarmConfig, readOnlyTables, readWriteTables, sharedIamPolicyArns)
