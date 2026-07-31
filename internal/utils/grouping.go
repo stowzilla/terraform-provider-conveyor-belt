@@ -15,12 +15,12 @@ type Route struct {
 	Lambda        string // Renamed from Action - determines Lambda function
 	Auth          string
 	Tables        []string
-	RequestModel    string // Name of the request model (from schema.tf.rb)
-	ResponseModel   string // Name of the response model (from schema.tf.rb)
+	RequestModel    string // Name of the request model (from contracts.rb)
+	ResponseModel   string // Name of the response model (from contracts.rb)
 	ResponseContext string // Explicit context override for response model; empty = use Gateway
 }
 
-// ModelDefinition represents a JSON Schema model from schema.tf.rb
+// ModelDefinition represents a JSON Schema model from contracts.rb
 type ModelDefinition struct {
 	Name        string                       `json:"name"`
 	Description string                       `json:"description"`

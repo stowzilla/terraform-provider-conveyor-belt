@@ -50,7 +50,7 @@ type DispatcherConfig struct {
 	Tags                 map[string]string
 	CustomDomainName     string // Custom domain name for unified API access (e.g., "api.example.com")
 	FriendlyErrors       bool   // Enable friendly error messages for missing routes
-	SchemaSource         string // Path to schema.tf.rb for API Gateway model definitions
+	SchemaSource         string // Path to contracts file (contracts.rb / schema.tf.rb) for API Gateway model definitions
 	SuppressTableEnvVars bool   // When true, do not generate *_TABLE_NAME and TABLES env vars
 	// Provider-level defaults for Lambda configuration
 	DefaultLambdaTimeout   int64
@@ -282,7 +282,7 @@ func executeBeltRoutesWithSchema(ctx context.Context, source, schemaPath string)
 	}
 
 	// Derive project root from the routes file path.
-	// Convention: routes file is at <project_root>/infrastructure/routes.tf.rb
+	// Convention: routes file is at <project_root>/config/routes.rb (or infrastructure/routes.tf.rb)
 	projectRoot := filepath.Dir(filepath.Dir(absSource))
 
 	args := []string{"routes", "-f", "json"}
