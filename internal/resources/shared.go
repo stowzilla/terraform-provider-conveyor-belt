@@ -50,7 +50,7 @@ type DispatcherConfig struct {
 	Tags                 map[string]string
 	CustomDomainName     string // Custom domain name for unified API access (e.g., "api.example.com")
 	FriendlyErrors       bool   // Enable friendly error messages for missing routes
-	SchemaSource         string // Path to schema.tf.rb for API Gateway model definitions
+	SchemaSource         string // Path to contracts.tf.rb (or legacy schema.tf.rb) for API Gateway model definitions
 	SuppressTableEnvVars bool   // When true, do not generate *_TABLE_NAME and TABLES env vars
 	// Provider-level defaults for Lambda configuration
 	DefaultLambdaTimeout   int64

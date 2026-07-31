@@ -196,7 +196,7 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Optional: true,
 			},
 			"schema_source": schema.StringAttribute{
-				Description: "Path to schema.tf.rb file defining API Gateway request/response models. " +
+				Description: "Path to contracts.tf.rb (or legacy schema.tf.rb) file defining API Gateway request/response models. " +
 					"When provided, Dispatcher creates API Gateway Models and Request Validators " +
 					"for runtime payload validation at the gateway level.",
 				Optional: true,
@@ -1373,7 +1373,7 @@ func (r *dispatcherResource) parseRoutes(ctx context.Context, source string) ([]
 
 // parseRoutesAndModels executes belt routes and returns both routes and model definitions.
 // If schemaSource is provided, it parses models from that file; otherwise auto-detects
-// schema.tf.rb in the same directory as the routes source file.
+// contracts.tf.rb (or legacy schema.tf.rb) in the same directory as the routes source file.
 func (r *dispatcherResource) parseRoutesAndModels(ctx context.Context, source, schemaSource string) ([]utils.Route, []utils.ModelDefinition, error) {
 	// Determine schema path: explicit config, or auto-detect from routes file directory
 	schemaPath := schemaSource
@@ -1384,7 +1384,12 @@ func (r *dispatcherResource) parseRoutesAndModels(ctx context.Context, source, s
 				absSource = filepath.Join(wd, source)
 			}
 		}
-		candidate := filepath.Join(filepath.Dir(absSource), "schema.tf.rb")
+		dir := filepath.Dir(absSource)
+		// Try contracts.tf.rb first, fall back to legacy schema.tf.rb
+		candidate := filepath.Join(dir, "contracts.tf.rb")
+		if _, err := os.Stat(candidate); err != nil {
+			candidate = filepath.Join(dir, "schema.tf.rb")
+		}
 		if _, err := os.Stat(candidate); err == nil {
 			schemaPath = candidate
 		}
