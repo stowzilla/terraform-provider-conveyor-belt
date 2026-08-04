@@ -170,7 +170,7 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			},
 			"docker_build_image": schema.StringAttribute{
 				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. " +
-					"Overrides the provider-level docker_build_image. Default: public.ecr.aws/sam/build-ruby3.4:latest-x86_64.",
+					"Overrides the image auto-derived from ruby_version. Only needed for fully custom build environments.",
 				Optional: true,
 			},
 			"read_only_tables": schema.ListAttribute{
@@ -436,6 +436,7 @@ func (r *dispatcherResource) Configure(_ context.Context, req resource.Configure
 		DefaultTags:            client.DefaultTags,
 		DockerBuildConcurrency: client.DockerBuildConcurrency,
 		DockerBuildImage:       client.DockerBuildImage,
+		RubyVersion:            client.RubyVersion,
 	}
 }
 
@@ -1271,6 +1272,7 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 		DefaultTags:            r.providerConfig.DefaultTags,
 		DockerBuildConcurrency: r.providerConfig.DockerBuildConcurrency,
 		DockerBuildImage:       r.providerConfig.DockerBuildImage,
+		RubyVersion:            r.providerConfig.RubyVersion,
 		AppName:                model.AppName.ValueString(),
 		LambdaSourceDir:        model.LambdaSourceDir.ValueString(),
 	}
@@ -1863,7 +1865,7 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 		WithSharedDirs(sharedDirs),
 		WithGemDirs(config.LambdaGemDirs),
 		WithConcurrency(config.DockerBuildConcurrency),
-		WithDockerImage(config.DockerBuildImage),
+		WithDockerImage(config.GetDockerBuildImage()),
 		WithConfig(config),
 	)
 
@@ -2693,7 +2695,7 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 			WithSharedDirs(sharedDirs),
 			WithGemDirs(config.LambdaGemDirs),
 			WithConcurrency(config.DockerBuildConcurrency),
-			WithDockerImage(config.DockerBuildImage),
+			WithDockerImage(config.GetDockerBuildImage()),
 			WithConfig(config),
 		)
 

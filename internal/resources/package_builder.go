@@ -22,6 +22,14 @@ import (
 // DefaultDockerBuildImage is the default Docker image used for building Lambda gem dependencies.
 const DefaultDockerBuildImage = "public.ecr.aws/sam/build-ruby3.4:latest-x86_64"
 
+// DefaultRubyVersion is the default Ruby version for Lambda runtime and build image.
+const DefaultRubyVersion = "3.4"
+
+// DockerBuildImageForVersion returns the SAM build image for a given Ruby version.
+func DockerBuildImageForVersion(version string) string {
+	return fmt.Sprintf("public.ecr.aws/sam/build-ruby%s:latest-x86_64", version)
+}
+
 // BuildResult represents the result of building a single Lambda package
 type BuildResult struct {
 	LambdaName string

@@ -58,6 +58,7 @@ type DispatcherConfig struct {
 	DefaultTags            map[string]string
 	DockerBuildConcurrency int
 	DockerBuildImage       string
+	RubyVersion            string
 	// RouteProcessingConcurrency controls the number of concurrent API Gateway route operations.
 	// If <= 0, defaults to DockerBuildConcurrency or CPU count.
 	// Requirements: 1.3, 3.4
@@ -134,6 +135,31 @@ type DispatcherClient struct {
 	DefaultTags            map[string]string
 	DockerBuildConcurrency int
 	DockerBuildImage       string
+	RubyVersion            string
+}
+
+// GetRubyVersion returns the configured Ruby version or the default.
+func (c *DispatcherConfig) GetRubyVersion() string {
+	if c.RubyVersion != "" {
+		return c.RubyVersion
+	}
+	return DefaultRubyVersion
+}
+
+// GetDockerBuildImage returns the Docker build image. Priority:
+// 1. Explicit docker_build_image (fully custom)
+// 2. Derived from ruby_version (e.g., "4.0" → "public.ecr.aws/sam/build-ruby4.0:latest-x86_64")
+// 3. Default (build-ruby3.4)
+func (c *DispatcherConfig) GetDockerBuildImage() string {
+	if c.DockerBuildImage != "" {
+		return c.DockerBuildImage
+	}
+	return DockerBuildImageForVersion(c.GetRubyVersion())
+}
+
+// GetLambdaRuntime returns the Lambda runtime string (e.g., "ruby3.4", "ruby4.0").
+func (c *DispatcherConfig) GetLambdaRuntime() string {
+	return "ruby" + c.GetRubyVersion()
 }
 
 // GetCORSOriginForConfig returns the CORS origin for DispatcherConfig
