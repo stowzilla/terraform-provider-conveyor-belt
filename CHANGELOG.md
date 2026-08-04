@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.13] - 2026-08-04
+
+### Fixed
+
+- **Per-lambda `iam_policy_arns` now triggers config hash change** — Previously, adding `iam_policy_arns` to a lambda's YAML config didn't change the config hash, so the IAM policy attachment never fired on redeploy. The hash now includes per-lambda IAM policy ARNs.
+
 ## [0.0.12] - 2026-08-04
 
 ### Added

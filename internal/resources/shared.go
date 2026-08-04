@@ -722,6 +722,7 @@ type lambdaConfigFields struct {
 	Timeout             int64
 	Memory              int64
 	SharedIamPolicyArns []string
+	IamPolicyArns       []string
 }
 
 // collectLambdaConfigFields extracts all configuration fields for a lambda from routes and lambda_config.
@@ -835,6 +836,23 @@ func collectLambdaConfigFields(routes []utils.Route, lambdaConfig map[string]int
 	copy(sortedSharedIamPolicyArns, sharedIamPolicyArns)
 	sort.Strings(sortedSharedIamPolicyArns)
 
+	// Collect per-lambda IAM policy ARNs from lambda_config
+	var iamPolicyArns []string
+	if lambdaConfigRaw, exists := lambdaConfig[lambdaName]; exists {
+		if lambdaCfg, ok := extractMapValue(lambdaConfigRaw); ok {
+			if arnsRaw, exists := lambdaCfg["iam_policy_arns"]; exists {
+				if arnsList, ok := arnsRaw.([]interface{}); ok {
+					for _, arnRaw := range arnsList {
+						if arnStr, ok := arnRaw.(string); ok && arnStr != "" {
+							iamPolicyArns = append(iamPolicyArns, arnStr)
+						}
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(iamPolicyArns)
+
 	return lambdaConfigFields{
 		Tables:              tables,
 		EnvVars:             lambdaEnvVars,
@@ -846,6 +864,7 @@ func collectLambdaConfigFields(routes []utils.Route, lambdaConfig map[string]int
 		Timeout:             timeout,
 		Memory:              memory,
 		SharedIamPolicyArns: sortedSharedIamPolicyArns,
+		IamPolicyArns:       iamPolicyArns,
 	}
 }
 
@@ -876,6 +895,7 @@ func calculateLambdaHash(routes []utils.Route, lambdaConfig map[string]interface
 		Timeout             int64
 		Memory              int64
 		SharedIamPolicyArns []string
+		IamPolicyArns       []string
 	}{
 		Tables:              normalizeStringSlice(fields.Tables),
 		EnvVars:             stabilizeEnvVarsForHashing(fields.EnvVars),
@@ -890,6 +910,7 @@ func calculateLambdaHash(routes []utils.Route, lambdaConfig map[string]interface
 		Timeout:             fields.Timeout,
 		Memory:              fields.Memory,
 		SharedIamPolicyArns: fields.SharedIamPolicyArns,
+		IamPolicyArns:       normalizeStringSlice(fields.IamPolicyArns),
 	}
 
 	combinedJSON, err := json.Marshal(combined)
@@ -923,6 +944,7 @@ func calculateLambdaConfigHash(routes []utils.Route, lambdaConfig map[string]int
 		Timeout             int64
 		Memory              int64
 		SharedIamPolicyArns []string
+		IamPolicyArns       []string
 	}{
 		Tables:              normalizeStringSlice(fields.Tables),
 		EnvVars:             stabilizeEnvVarsForHashing(fields.EnvVars),
@@ -938,6 +960,7 @@ func calculateLambdaConfigHash(routes []utils.Route, lambdaConfig map[string]int
 		Timeout:             fields.Timeout,
 		Memory:              fields.Memory,
 		SharedIamPolicyArns: fields.SharedIamPolicyArns,
+		IamPolicyArns:       normalizeStringSlice(fields.IamPolicyArns),
 	}
 
 	configJSON, err := json.Marshal(configData)
