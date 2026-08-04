@@ -307,6 +307,14 @@ func convertToLambdaConfig(merged map[string]interface{}, envRefs map[string]str
 		}
 	}
 
+	// Handle iam_policy_arns: list of ARN strings, supports ref() markers
+	if arnsRaw, exists := merged["iam_policy_arns"]; exists {
+		arns := convertIamPolicyArns(arnsRaw, envRefs)
+		if len(arns) > 0 {
+			result["iam_policy_arns"] = arns
+		}
+	}
+
 	return result
 }
 
@@ -685,6 +693,42 @@ func convertSQSTriggers(triggersRaw interface{}, envRefs map[string]string) []in
 	return result
 }
 
+// convertIamPolicyArns converts YAML iam_policy_arns (list of strings) into resolved ARNs.
+// Supports ref() markers for referencing Terraform-managed policy ARNs via lambda_env_refs.
+//
+// Input YAML format:
+//
+//	iam_policy_arns:
+//	  - ref(bedrock_access_policy_arn)
+//	  - arn:aws:iam::123456789012:policy/MyStaticPolicy
+//
+// Output: ["arn:aws:iam::...:policy/...", "arn:aws:iam::...:policy/MyStaticPolicy"]
+func convertIamPolicyArns(arnsRaw interface{}, envRefs map[string]string) []interface{} {
+	arnList, ok := arnsRaw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	var result []interface{}
+	for _, arnRaw := range arnList {
+		arnStr, ok := arnRaw.(string)
+		if !ok {
+			continue
+		}
+
+		if refName, isRef := parseRefMarker(arnStr); isRef {
+			if resolved, exists := envRefs[refName]; exists {
+				result = append(result, resolved)
+			}
+			// Skip unresolved refs (will be caught at plan time)
+		} else {
+			result = append(result, arnStr)
+		}
+	}
+
+	return result
+}
+
 // normalizePermissions takes a YAML permissions value (list of strings like "BatchWriteItem")
 // and normalizes them to the full "dynamodb:Action" format the provider expects.
 func normalizePermissions(permsRaw interface{}) []string {
@@ -835,4 +879,41 @@ func sortedLambdaNames(config map[string]interface{}) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// extractPerLambdaIamPolicyArns retrieves iam_policy_arns from a specific lambda's config.
+// Returns nil if the lambda has no config or no iam_policy_arns.
+func extractPerLambdaIamPolicyArns(lambdaConfig map[string]interface{}, lambdaName string) []string {
+	if lambdaConfig == nil {
+		return nil
+	}
+
+	configRaw, exists := lambdaConfig[lambdaName]
+	if !exists {
+		return nil
+	}
+
+	config, ok := configRaw.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	arnsRaw, exists := config["iam_policy_arns"]
+	if !exists {
+		return nil
+	}
+
+	arnsList, ok := arnsRaw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	var arns []string
+	for _, arnRaw := range arnsList {
+		if arnStr, ok := arnRaw.(string); ok && arnStr != "" {
+			arns = append(arns, arnStr)
+		}
+	}
+
+	return arns
 }
