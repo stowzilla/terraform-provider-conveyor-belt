@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.12] - 2026-08-04
+
+### Added
+
+- **`ruby_version` configuration option** — Set the Ruby version for both the Lambda runtime and the default Docker build image with a single provider-level setting. Example: `ruby_version = "4.0"` sets the Lambda runtime to `ruby4.0` and uses `public.ecr.aws/sam/build-ruby4.0:latest-x86_64` for gem compilation. Default: `"3.4"` (no breaking change). The explicit `docker_build_image` option still overrides the derived image for fully custom build environments.
+
 ## [0.0.11] - 2026-08-04
 
 ### Added
