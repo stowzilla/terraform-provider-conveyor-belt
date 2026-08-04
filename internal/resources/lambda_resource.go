@@ -562,7 +562,7 @@ func (r *lambdaResource) createLambdaFunction(ctx context.Context, functionName,
 
 	createInput := &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Runtime:      lambdaTypes.RuntimeRuby34,
+		Runtime:      lambdaTypes.Runtime(config.GetLambdaRuntime()),
 		Role:         aws.String(roleArn),
 		Handler:      aws.String(fmt.Sprintf("%s.lambda_handler", lambdaName)),
 		Code: &lambdaTypes.FunctionCode{

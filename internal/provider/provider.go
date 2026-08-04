@@ -68,7 +68,14 @@ func (p *dispatcherProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 			},
 			"docker_build_image": schema.StringAttribute{
 				Optional:    true,
-				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. Default: public.ecr.aws/sam/build-ruby3.4:latest-x86_64.",
+				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. " +
+					"Overrides the image derived from ruby_version. Default: derived from ruby_version.",
+			},
+			"ruby_version": schema.StringAttribute{
+				Optional:    true,
+				Description: "Ruby version for Lambda runtime and default build image (e.g., \"3.4\", \"4.0\"). " +
+					"Controls both the Lambda execution runtime and the SAM build image used for gem compilation. " +
+					"Default: \"3.4\".",
 			},
 		},
 	}
@@ -84,6 +91,7 @@ type dispatcherProviderModel struct {
 	DefaultTags               types.Map    `tfsdk:"default_tags"`
 	DockerBuildConcurrency    types.Int64  `tfsdk:"docker_build_concurrency"`
 	DockerBuildImage          types.String `tfsdk:"docker_build_image"`
+	RubyVersion               types.String `tfsdk:"ruby_version"`
 }
 
 // Configure prepares a Dispatcher provider.
@@ -117,6 +125,7 @@ func (p *dispatcherProvider) Configure(ctx context.Context, req provider.Configu
 		DefaultTags:            defaultTags,
 		DockerBuildConcurrency: dockerBuildConcurrency,
 		DockerBuildImage:       config.DockerBuildImage.ValueString(),
+		RubyVersion:            config.RubyVersion.ValueString(),
 	}
 
 	resp.DataSourceData = client
