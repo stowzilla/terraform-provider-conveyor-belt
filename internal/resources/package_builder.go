@@ -19,6 +19,9 @@ import (
 	"terraform-provider-conveyor-belt/internal/utils"
 )
 
+// DefaultDockerBuildImage is the default Docker image used for building Lambda gem dependencies.
+const DefaultDockerBuildImage = "public.ecr.aws/sam/build-ruby3.4:latest-x86_64"
+
 // BuildResult represents the result of building a single Lambda package
 type BuildResult struct {
 	LambdaName string
@@ -29,11 +32,12 @@ type BuildResult struct {
 
 // PackageBuilder handles parallel building of Lambda deployment packages
 type PackageBuilder struct {
-	sourceDir   string
-	sharedDirs  []string
-	gemDirs     []string
-	concurrency int
-	config      *DispatcherConfig
+	sourceDir    string
+	sharedDirs   []string
+	gemDirs      []string
+	concurrency  int
+	config       *DispatcherConfig
+	dockerImage  string
 }
 
 // PackageBuilderOption is a functional option for configuring PackageBuilder
@@ -69,12 +73,22 @@ func WithConfig(config *DispatcherConfig) PackageBuilderOption {
 	}
 }
 
+// WithDockerImage sets the Docker image used for building gem dependencies
+func WithDockerImage(image string) PackageBuilderOption {
+	return func(pb *PackageBuilder) {
+		if image != "" {
+			pb.dockerImage = image
+		}
+	}
+}
+
 // NewPackageBuilder creates a new PackageBuilder with the given source directory
 func NewPackageBuilder(sourceDir string, opts ...PackageBuilderOption) *PackageBuilder {
 	pb := &PackageBuilder{
 		sourceDir:   sourceDir,
 		sharedDirs:  []string{"models", "lib", "helpers", "templates"},
 		concurrency: runtime.NumCPU(),
+		dockerImage: DefaultDockerBuildImage,
 	}
 
 	for _, opt := range opts {
@@ -304,7 +318,7 @@ gem 'json', '~> 2.0'
 		"-e", "HOME=/tmp",
 		"-v", fmt.Sprintf("%s:/var/task", absBuildDir),
 		"-w", "/var/task",
-		"public.ecr.aws/sam/build-ruby3.4:latest-x86_64",
+		pb.dockerImage,
 		"/bin/bash", "-c", `bundle config set --local path 'vendor/bundle' && \
 bundle config set --local without 'development test' && \
 bundle config set silence_root_warning 1 && \
@@ -558,7 +572,7 @@ gem 'json', '~> 2.0'
 		"-e", "HOME=/tmp",
 		"-v", fmt.Sprintf("%s:/var/task", absBuildDir),
 		"-w", "/var/task",
-		"public.ecr.aws/sam/build-ruby3.4:latest-x86_64",
+		pb.dockerImage,
 		"/bin/bash", "-c", `bundle config set --local path 'vendor/bundle' && \
 bundle config set --local without 'development test' && \
 bundle config set silence_root_warning 1 && \

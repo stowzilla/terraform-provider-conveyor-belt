@@ -66,6 +66,10 @@ func (p *dispatcherProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 				Optional:    true,
 				Description: "Maximum number of concurrent Docker builds for Lambda packages. Default: number of CPUs.",
 			},
+			"docker_build_image": schema.StringAttribute{
+				Optional:    true,
+				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. Default: public.ecr.aws/sam/build-ruby3.4:latest-x86_64.",
+			},
 		},
 	}
 }
@@ -79,6 +83,7 @@ type dispatcherProviderModel struct {
 	DefaultLambdaMemory       types.Int64  `tfsdk:"default_lambda_memory"`
 	DefaultTags               types.Map    `tfsdk:"default_tags"`
 	DockerBuildConcurrency    types.Int64  `tfsdk:"docker_build_concurrency"`
+	DockerBuildImage          types.String `tfsdk:"docker_build_image"`
 }
 
 // Configure prepares a Dispatcher provider.
@@ -111,6 +116,7 @@ func (p *dispatcherProvider) Configure(ctx context.Context, req provider.Configu
 		DefaultLambdaMemory:    config.DefaultLambdaMemory.ValueInt64(),
 		DefaultTags:            defaultTags,
 		DockerBuildConcurrency: dockerBuildConcurrency,
+		DockerBuildImage:       config.DockerBuildImage.ValueString(),
 	}
 
 	resp.DataSourceData = client
