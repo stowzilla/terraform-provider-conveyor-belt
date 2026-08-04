@@ -2779,6 +2779,16 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 					iamErrMu.Unlock()
 					return
 				}
+
+				// Attach per-lambda IAM policies from lambda_config
+				if perLambdaArns := extractPerLambdaIamPolicyArns(lambdaConfig, ln); len(perLambdaArns) > 0 {
+					if err := r.iamManager.AttachPolicyArns(ctx, roleName, perLambdaArns); err != nil {
+						iamErrMu.Lock()
+						iamErrors = append(iamErrors, fmt.Sprintf("lambda %s per-lambda policy: %s", ln, err.Error()))
+						iamErrMu.Unlock()
+						return
+					}
+				}
 				if err := r.iamManager.CreateDynamoDBPoliciesForAction(ctx, ln, lambdaRoutes, roleName); err != nil {
 					utils.Warn(ctx, "Failed to reconcile DynamoDB policies", map[string]interface{}{
 						"lambda": ln,

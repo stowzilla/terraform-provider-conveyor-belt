@@ -184,10 +184,19 @@ func (im *IAMManager) AttachSharedIamPolicies(ctx context.Context, roleName stri
 	if len(im.config.SharedIamPolicyArns) == 0 {
 		return nil
 	}
+	return im.AttachPolicyArns(ctx, roleName, im.config.SharedIamPolicyArns)
+}
 
-	utils.Info(ctx, fmt.Sprintf("Attaching %d shared IAM policies to role: %s", len(im.config.SharedIamPolicyArns), roleName))
+// AttachPolicyArns attaches a list of IAM policy ARNs to a Lambda role.
+// Used for both shared policies and per-lambda policies from lambda_config.
+func (im *IAMManager) AttachPolicyArns(ctx context.Context, roleName string, policyArns []string) error {
+	if len(policyArns) == 0 {
+		return nil
+	}
 
-	for _, policyArn := range im.config.SharedIamPolicyArns {
+	utils.Info(ctx, fmt.Sprintf("Attaching %d IAM policies to role: %s", len(policyArns), roleName))
+
+	for _, policyArn := range policyArns {
 		err := retryOnThrottle(ctx, fmt.Sprintf("attach policy to %s", roleName), 5, func() error {
 			_, err := im.client.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{
 				RoleName:  aws.String(roleName),
@@ -200,13 +209,13 @@ func (im *IAMManager) AttachSharedIamPolicies(ctx context.Context, roleName stri
 				continue
 			}
 			if strings.Contains(err.Error(), "LimitExceeded") {
-				return fmt.Errorf("IAM policy quota exceeded on role %s while attaching shared policy %s: "+
+				return fmt.Errorf("IAM policy quota exceeded on role %s while attaching policy %s: "+
 					"AWS limits roles to 10 managed policies. Consolidate policies or request a quota increase. "+
 					"Original error: %w", roleName, policyArn, err)
 			}
-			return fmt.Errorf("failed to attach shared policy %s to role %s: %w", policyArn, roleName, err)
+			return fmt.Errorf("failed to attach policy %s to role %s: %w", policyArn, roleName, err)
 		}
-		utils.Info(ctx, "Attached shared IAM policy to role", map[string]interface{}{
+		utils.Info(ctx, "Attached IAM policy to role", map[string]interface{}{
 			"role_name":  roleName,
 			"policy_arn": policyArn,
 		})

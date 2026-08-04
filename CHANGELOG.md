@@ -5,6 +5,18 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.10] - 2026-08-04
+
+### Added
+
+- **Per-lambda `iam_policy_arns` in YAML config** — Lambda config files (`config/lambda/*.yml`) now support `iam_policy_arns` for attaching IAM policies to individual lambdas instead of all lambdas via `shared_iam_policy_arns`. Supports `ref()` markers resolved through `lambda_env_refs`.
+- `AttachPolicyArns` method on IAMManager — shared utility for attaching a list of policy ARNs to a role, used by both shared and per-lambda paths.
+- `extractPerLambdaIamPolicyArns` helper for reading resolved ARNs from lambda_config.
+
+### Changed
+
+- `AttachSharedIamPolicies` now delegates to `AttachPolicyArns` (no behavior change for existing users).
+
 ## [0.0.9] - 2026-07-31
 
 ### Changed

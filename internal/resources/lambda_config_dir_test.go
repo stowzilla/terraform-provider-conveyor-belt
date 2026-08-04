@@ -909,3 +909,52 @@ func TestRuntimePassthrough(t *testing.T) {
 		t.Errorf("expected ephemeral_storage=2048, got %v", search["ephemeral_storage"])
 	}
 }
+
+func TestLoadLambdaConfigFromDir_IamPolicyArns(t *testing.T) {
+	dir := t.TempDir()
+
+	apiYAML := `default: &default
+  timeout: 30
+  iam_policy_arns:
+    - ref(bedrock_access_policy_arn)
+    - arn:aws:iam::123456789012:policy/StaticPolicy
+
+dev:
+  <<: *default
+`
+
+	if err := os.WriteFile(filepath.Join(dir, "api.yml"), []byte(apiYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	envRefs := map[string]string{
+		"bedrock_access_policy_arn": "arn:aws:iam::123456789012:policy/BedrockAccess",
+	}
+
+	result, err := loadLambdaConfigFromDir(dir, "dev", envRefs, "space-chat", "us-east-1", "123456789012")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	apiConfig, ok := result["api"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected api config to be a map")
+	}
+
+	arns, ok := apiConfig["iam_policy_arns"].([]interface{})
+	if !ok {
+		t.Fatalf("expected iam_policy_arns to be a list, got %T", apiConfig["iam_policy_arns"])
+	}
+
+	if len(arns) != 2 {
+		t.Fatalf("expected 2 arns, got %d", len(arns))
+	}
+
+	if arns[0] != "arn:aws:iam::123456789012:policy/BedrockAccess" {
+		t.Errorf("expected resolved ref, got %v", arns[0])
+	}
+
+	if arns[1] != "arn:aws:iam::123456789012:policy/StaticPolicy" {
+		t.Errorf("expected static ARN, got %v", arns[1])
+	}
+}
