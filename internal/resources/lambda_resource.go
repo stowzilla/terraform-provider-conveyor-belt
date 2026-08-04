@@ -48,6 +48,7 @@ type LambdaResourceModel struct {
 	SourceDir    types.String `tfsdk:"source_dir"`
 	SharedDirs   types.List   `tfsdk:"shared_dirs"`
 	GemDirs      types.List   `tfsdk:"gem_dirs"`
+	DockerBuildImage types.String `tfsdk:"docker_build_image"`
 	EnvVars      types.Map    `tfsdk:"env_vars"`
 	Timeout      types.Int64  `tfsdk:"timeout"`
 	Memory       types.Int64  `tfsdk:"memory"`
@@ -106,6 +107,11 @@ func (r *lambdaResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Description: "Directories (relative to source_dir) to include in the Docker gem build context for path-based gems",
 				Optional:    true,
 				ElementType: types.StringType,
+			},
+			"docker_build_image": schema.StringAttribute{
+				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. " +
+					"Overrides the provider-level docker_build_image. Default: public.ecr.aws/sam/build-ruby3.4:latest-x86_64.",
+				Optional: true,
 			},
 			"env_vars": schema.MapAttribute{
 				Description: "Environment variables for the Lambda",
@@ -206,6 +212,7 @@ func (r *lambdaResource) Configure(_ context.Context, req resource.ConfigureRequ
 		DefaultLambdaMemory:    client.DefaultLambdaMemory,
 		DefaultTags:            client.DefaultTags,
 		DockerBuildConcurrency: client.DockerBuildConcurrency,
+		DockerBuildImage:       client.DockerBuildImage,
 	}
 }
 
@@ -298,6 +305,12 @@ func (r *lambdaResource) buildConfigFromModel(ctx context.Context, model *Lambda
 		AwsRegion:       r.providerConfig.AwsRegion,
 		AppName:         model.AppName.ValueString(),
 		LambdaSourceDir: model.SourceDir.ValueString(),
+		DockerBuildImage: r.providerConfig.DockerBuildImage,
+	}
+
+	// Resource-level docker_build_image overrides provider-level
+	if !model.DockerBuildImage.IsNull() && !model.DockerBuildImage.IsUnknown() {
+		config.DockerBuildImage = model.DockerBuildImage.ValueString()
 	}
 
 	// Get AWS account ID
@@ -446,6 +459,7 @@ func (r *lambdaResource) Create(ctx context.Context, req resource.CreateRequest,
 		config.LambdaSourceDir,
 		WithSharedDirs(sharedDirs),
 		WithGemDirs(config.LambdaGemDirs),
+		WithDockerImage(config.DockerBuildImage),
 		WithConfig(config),
 	)
 
@@ -858,6 +872,7 @@ func (r *lambdaResource) Update(ctx context.Context, req resource.UpdateRequest,
 			config.LambdaSourceDir,
 			WithSharedDirs(sharedDirs),
 			WithGemDirs(config.LambdaGemDirs),
+			WithDockerImage(config.DockerBuildImage),
 			WithConfig(config),
 		)
 

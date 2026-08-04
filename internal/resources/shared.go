@@ -57,6 +57,7 @@ type DispatcherConfig struct {
 	DefaultLambdaMemory    int64
 	DefaultTags            map[string]string
 	DockerBuildConcurrency int
+	DockerBuildImage       string
 	// RouteProcessingConcurrency controls the number of concurrent API Gateway route operations.
 	// If <= 0, defaults to DockerBuildConcurrency or CPU count.
 	// Requirements: 1.3, 3.4
@@ -132,6 +133,7 @@ type DispatcherClient struct {
 	DefaultLambdaMemory    int64
 	DefaultTags            map[string]string
 	DockerBuildConcurrency int
+	DockerBuildImage       string
 }
 
 // GetCORSOriginForConfig returns the CORS origin for DispatcherConfig

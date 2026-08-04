@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.11] - 2026-08-04
+
+### Added
+
+- **`docker_build_image` configuration option** — Override the Docker image used to build Lambda dependencies. Configurable at the provider level (applies to all resources) or per-resource (overrides the provider setting). Default remains `public.ecr.aws/sam/build-ruby3.4:latest-x86_64`. Any image with Ruby, Bundler, and `/bin/bash` available is compatible.
+
 ## [0.0.10] - 2026-08-04
 
 ### Added

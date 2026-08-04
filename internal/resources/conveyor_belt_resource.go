@@ -68,6 +68,7 @@ type DispatcherResourceModel struct {
 	LambdaLayerArns      types.List   `tfsdk:"lambda_layer_arns"`
 	LambdaSharedDirs     types.List   `tfsdk:"lambda_shared_dirs"`
 	LambdaGemDirs        types.List   `tfsdk:"lambda_gem_dirs"`
+	DockerBuildImage     types.String `tfsdk:"docker_build_image"`
 	ReadOnlyTables       types.List   `tfsdk:"read_only_tables"`
 	ReadWriteTables      types.List   `tfsdk:"read_write_tables"`
 	CustomDomainName     types.String `tfsdk:"custom_domain_name"`
@@ -166,6 +167,11 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					"Use this when your Gemfile references gems via `path:` that live alongside your Lambda source.",
 				Optional:    true,
 				ElementType: types.StringType,
+			},
+			"docker_build_image": schema.StringAttribute{
+				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. " +
+					"Overrides the provider-level docker_build_image. Default: public.ecr.aws/sam/build-ruby3.4:latest-x86_64.",
+				Optional: true,
 			},
 			"read_only_tables": schema.ListAttribute{
 				Description: "DynamoDB tables that all Lambdas get read-only access to",
@@ -429,6 +435,7 @@ func (r *dispatcherResource) Configure(_ context.Context, req resource.Configure
 		DefaultLambdaMemory:    client.DefaultLambdaMemory,
 		DefaultTags:            client.DefaultTags,
 		DockerBuildConcurrency: client.DockerBuildConcurrency,
+		DockerBuildImage:       client.DockerBuildImage,
 	}
 }
 
@@ -1216,8 +1223,14 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 		DefaultLambdaMemory:    r.providerConfig.DefaultLambdaMemory,
 		DefaultTags:            r.providerConfig.DefaultTags,
 		DockerBuildConcurrency: r.providerConfig.DockerBuildConcurrency,
+		DockerBuildImage:       r.providerConfig.DockerBuildImage,
 		AppName:                model.AppName.ValueString(),
 		LambdaSourceDir:        model.LambdaSourceDir.ValueString(),
+	}
+
+	// Resource-level docker_build_image overrides provider-level
+	if !model.DockerBuildImage.IsNull() && !model.DockerBuildImage.IsUnknown() {
+		config.DockerBuildImage = model.DockerBuildImage.ValueString()
 	}
 
 	// Get AWS account ID
@@ -1803,6 +1816,7 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 		WithSharedDirs(sharedDirs),
 		WithGemDirs(config.LambdaGemDirs),
 		WithConcurrency(config.DockerBuildConcurrency),
+		WithDockerImage(config.DockerBuildImage),
 		WithConfig(config),
 	)
 
@@ -2632,6 +2646,7 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 			WithSharedDirs(sharedDirs),
 			WithGemDirs(config.LambdaGemDirs),
 			WithConcurrency(config.DockerBuildConcurrency),
+			WithDockerImage(config.DockerBuildImage),
 			WithConfig(config),
 		)
 
