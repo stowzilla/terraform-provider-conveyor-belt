@@ -1,0 +1,15 @@
+metadata:
+  id: "CKV_CONVEYOR_12"
+  name: "Ensure SQS queues have a dead-letter queue configured"
+  category: "BACKUP_AND_RECOVERY"
+  guideline: "SQS queues used as Lambda triggers should have a dead-letter queue (redrive policy) configured. Without a DLQ, failed messages are lost after max receive attempts, making debugging impossible."
+
+scope:
+  provider: "aws"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_sqs_queue"
+  attribute: "redrive_policy"
+  operator: "is_not_empty"

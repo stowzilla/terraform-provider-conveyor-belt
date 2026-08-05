@@ -1,0 +1,15 @@
+metadata:
+  id: "CKV_CONVEYOR_14"
+  name: "Ensure SNS topics have encryption enabled"
+  category: "ENCRYPTION"
+  guideline: "SNS topics used for Lambda triggers and alarm notifications should have server-side encryption enabled using KMS to protect message contents."
+
+scope:
+  provider: "aws"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_sns_topic"
+  attribute: "kms_master_key_id"
+  operator: "is_not_empty"

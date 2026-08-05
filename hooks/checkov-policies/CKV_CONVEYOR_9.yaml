@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_9"
+  name: "Ensure S3 buckets have versioning enabled"
+  category: "BACKUP_AND_RECOVERY"
+  guideline: "S3 buckets used with Conveyor Belt Lambdas should have versioning enabled to protect against accidental deletion or overwrites. Enables recovery of previous object versions."
+
+scope:
+  provider: "aws"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_s3_bucket_versioning"
+  attribute: "versioning_configuration.status"
+  operator: "equals"
+  value: "Enabled"

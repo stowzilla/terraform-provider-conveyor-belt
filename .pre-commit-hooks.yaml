@@ -1,0 +1,44 @@
+# Pre-commit hooks for projects using the Conveyor Belt Terraform provider.
+#
+# Usage in your .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/stowzilla/terraform-provider-conveyor-belt
+#       rev: v0.23.0
+#       hooks:
+#         - id: conveyor-belt-routes-validate
+#         - id: conveyor-belt-no-generated-files
+#         - id: conveyor-belt-checkov
+
+- id: conveyor-belt-routes-validate
+  name: Validate Conveyor Belt routes
+  description: Verify routes.tf.rb parses correctly using `belt routes`
+  entry: hooks/scripts/validate-routes.sh
+  language: script
+  files: '(routes\.tf\.rb|schema\.tf\.rb)$'
+  types: [ruby]
+
+- id: conveyor-belt-no-generated-files
+  name: Block generated .conveyor-belt/ files
+  description: Prevent committing generated artifacts from .conveyor-belt/
+  entry: hooks/scripts/no-generated-files.sh
+  language: script
+  always_run: true
+  pass_filenames: true
+
+- id: conveyor-belt-lambda-syntax
+  name: Check Lambda Ruby syntax
+  description: Verify Ruby syntax in Lambda source files
+  entry: ruby -c
+  language: system
+  files: '\.rb$'
+  exclude: '(routes\.tf\.rb|schema\.tf\.rb|Gemfile|Rakefile|\.gemspec)$'
+  types: [ruby]
+
+- id: conveyor-belt-checkov
+  name: Checkov security scan (Conveyor Belt policies)
+  description: Run Checkov with custom policies to validate Conveyor Belt infrastructure security
+  entry: hooks/scripts/checkov-scan.sh
+  language: script
+  files: '\.tf$'
+  types: [terraform]

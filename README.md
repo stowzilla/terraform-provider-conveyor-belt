@@ -14,6 +14,7 @@ A Terraform provider that manages AWS serverless infrastructure from a Ruby rout
 - [Custom Domain Support](#custom-domain-support)
 - [Data Sources](#data-sources)
 - [Examples](#examples)
+- [Pre-commit Hooks](#pre-commit-hooks)
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
 
@@ -572,7 +573,89 @@ See the [examples](./examples) directory:
 - [With Cognito](./examples/with-cognito) — Authentication with Cognito across multiple gateways
 - [With Triggers](./examples/with-triggers) — Event-driven architecture with SNS and SQS triggers
 
+## Pre-commit Hooks
+
+Conveyor Belt provides [pre-commit](https://pre-commit.com/) hooks you can use in your infrastructure projects to validate routes, check Lambda syntax, prevent committing generated files, and **run Checkov security scans** against your configuration.
+
+### Setup
+
+```yaml
+# .pre-commit-config.yaml in your infrastructure project
+repos:
+  - repo: https://github.com/stowzilla/terraform-provider-conveyor-belt
+    rev: v0.23.0
+    hooks:
+      - id: conveyor-belt-routes-validate
+      - id: conveyor-belt-no-generated-files
+      - id: conveyor-belt-lambda-syntax
+      - id: conveyor-belt-checkov
+```
+
+```bash
+pre-commit install
+```
+
+### Available Hooks
+
+| Hook | Description | Requires |
+|------|-------------|----------|
+| `conveyor-belt-routes-validate` | Validates `routes.tf.rb` and `schema.tf.rb` using `belt routes` | `belt` CLI |
+| `conveyor-belt-no-generated-files` | Blocks committing `.conveyor-belt/` artifacts | — |
+| `conveyor-belt-lambda-syntax` | Checks Ruby syntax in Lambda source files | `ruby` |
+| `conveyor-belt-checkov` | Runs Checkov with custom policies for Conveyor Belt security | `checkov` |
+
+### Checkov Security Policies
+
+The `conveyor-belt-checkov` hook ships with custom policies that validate your infrastructure conforms to security best practices:
+
+| Policy | What It Checks |
+|--------|---------------|
+| `CKV_CONVEYOR_1` | CloudWatch alarms are enabled |
+| `CKV_CONVEYOR_2` | `friendly_errors` is disabled (prevents info leakage) |
+| `CKV_CONVEYOR_3` | Cognito authentication is configured |
+| `CKV_CONVEYOR_4` | Alarm SNS topic is configured |
+| `CKV_CONVEYOR_5` | Lambda timeout within bounds |
+| `CKV_CONVEYOR_6` | Shared IAM policies are defined |
+| `CKV_CONVEYOR_7` | DynamoDB deletion protection enabled |
+| `CKV_CONVEYOR_8` | DynamoDB point-in-time recovery enabled |
+| `CKV_CONVEYOR_9` | S3 bucket versioning enabled |
+| `CKV_CONVEYOR_10` | S3 buckets block public access |
+| `CKV_CONVEYOR_11` | Lambda memory within cost-effective bounds |
+| `CKV_CONVEYOR_12` | SQS queues have dead-letter queues configured |
+| `CKV_CONVEYOR_13` | SQS queues have encryption enabled |
+| `CKV_CONVEYOR_14` | SNS topics have encryption enabled |
+
+You can also write your own custom policies — see [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for details.
+
+See [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for full setup guide, combining with Terraform/Checkov hooks, CI integration, and customization options.
+
 ## Development
+
+### Setup Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to run code quality checks before commits.
+
+```bash
+# Install pre-commit (if not already installed)
+brew install pre-commit  # macOS
+# or: pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+pre-commit install --hook-type pre-push
+```
+
+The hooks run:
+- **On commit:** formatting (gofmt), static analysis (go vet), build verification
+- **On push:** all of the above plus tests
+
+To run all hooks manually:
+
+```bash
+pre-commit run --all-files
+```
+
+> **Note:** Some integration tests require AWS credentials. Tests without credentials will fail — CI handles full test coverage.
 
 ### Build from Source
 

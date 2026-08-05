@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_1"
+  name: "Ensure CloudWatch alarms are enabled for Conveyor Belt"
+  category: "LOGGING"
+  guideline: "CloudWatch alarms should be enabled to detect Lambda errors, throttles, and duration issues."
+
+scope:
+  provider: "conveyor-belt"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "conveyor_belt"
+  attribute: "alarm_config.enabled"
+  operator: "equals"
+  value: "true"

@@ -1,0 +1,15 @@
+metadata:
+  id: "CKV_CONVEYOR_6"
+  name: "Ensure shared IAM policies are defined for Conveyor Belt Lambdas"
+  category: "IAM"
+  guideline: "Use shared_iam_policy_arns to enforce consistent security policies (e.g., secrets access, VPC policies) across all Lambda functions."
+
+scope:
+  provider: "conveyor-belt"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "conveyor_belt"
+  attribute: "shared_iam_policy_arns"
+  operator: "is_not_empty"
