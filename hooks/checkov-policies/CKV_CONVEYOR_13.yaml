@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_13"
+  name: "Ensure SQS queues have encryption enabled"
+  category: "ENCRYPTION"
+  guideline: "SQS queues should use server-side encryption (SSE) to protect message contents at rest. Use either SQS-managed keys (SSE-SQS) or KMS customer-managed keys."
+
+scope:
+  provider: "aws"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_sqs_queue"
+  attribute: "sqs_managed_sse_enabled"
+  operator: "equals"
+  value: "true"

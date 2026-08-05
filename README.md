@@ -616,6 +616,14 @@ The `conveyor-belt-checkov` hook ships with custom policies that validate your i
 | `CKV_CONVEYOR_4` | Alarm SNS topic is configured |
 | `CKV_CONVEYOR_5` | Lambda timeout within bounds |
 | `CKV_CONVEYOR_6` | Shared IAM policies are defined |
+| `CKV_CONVEYOR_7` | DynamoDB deletion protection enabled |
+| `CKV_CONVEYOR_8` | DynamoDB point-in-time recovery enabled |
+| `CKV_CONVEYOR_9` | S3 bucket versioning enabled |
+| `CKV_CONVEYOR_10` | S3 buckets block public access |
+| `CKV_CONVEYOR_11` | Lambda memory within cost-effective bounds |
+| `CKV_CONVEYOR_12` | SQS queues have dead-letter queues configured |
+| `CKV_CONVEYOR_13` | SQS queues have encryption enabled |
+| `CKV_CONVEYOR_14` | SNS topics have encryption enabled |
 
 You can also write your own custom policies — see [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for details.
 

@@ -77,14 +77,22 @@ Runs [Checkov](https://www.checkov.io/) with custom security policies designed s
 
 **Custom policies included:**
 
-| Policy ID | Description |
-|-----------|-------------|
-| `CKV_CONVEYOR_1` | Ensure CloudWatch alarms are enabled |
-| `CKV_CONVEYOR_2` | Ensure `friendly_errors` is disabled (prevents info leakage in production) |
-| `CKV_CONVEYOR_3` | Ensure Cognito authentication is configured |
-| `CKV_CONVEYOR_4` | Ensure alarm SNS topic is configured when alarms are enabled |
-| `CKV_CONVEYOR_5` | Ensure Lambda timeout does not exceed 900 seconds |
-| `CKV_CONVEYOR_6` | Ensure shared IAM policies are defined |
+| Policy ID | Category | Description |
+|-----------|----------|-------------|
+| `CKV_CONVEYOR_1` | Logging | Ensure CloudWatch alarms are enabled |
+| `CKV_CONVEYOR_2` | Security | Ensure `friendly_errors` is disabled (prevents info leakage in production) |
+| `CKV_CONVEYOR_3` | IAM | Ensure Cognito authentication is configured |
+| `CKV_CONVEYOR_4` | Logging | Ensure alarm SNS topic is configured when alarms are enabled |
+| `CKV_CONVEYOR_5` | Security | Ensure Lambda timeout does not exceed 900 seconds |
+| `CKV_CONVEYOR_6` | IAM | Ensure shared IAM policies are defined |
+| `CKV_CONVEYOR_7` | Data Protection | Ensure DynamoDB tables have deletion protection enabled |
+| `CKV_CONVEYOR_8` | Backup & Recovery | Ensure DynamoDB tables have point-in-time recovery enabled |
+| `CKV_CONVEYOR_9` | Backup & Recovery | Ensure S3 buckets have versioning enabled |
+| `CKV_CONVEYOR_10` | Security | Ensure S3 buckets block all public access |
+| `CKV_CONVEYOR_11` | Cost Control | Ensure Lambda memory is within cost-effective bounds (≤ 3008 MB) |
+| `CKV_CONVEYOR_12` | Reliability | Ensure SQS queues have a dead-letter queue configured |
+| `CKV_CONVEYOR_13` | Encryption | Ensure SQS queues have encryption enabled |
+| `CKV_CONVEYOR_14` | Encryption | Ensure SNS topics have encryption enabled |
 
 ## Checkov Integration Details
 
