@@ -574,6 +574,32 @@ See the [examples](./examples) directory:
 
 ## Development
 
+### Setup Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to run code quality checks before commits.
+
+```bash
+# Install pre-commit (if not already installed)
+brew install pre-commit  # macOS
+# or: pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+pre-commit install --hook-type pre-push
+```
+
+The hooks run:
+- **On commit:** formatting (gofmt), static analysis (go vet), build verification
+- **On push:** all of the above plus tests
+
+To run all hooks manually:
+
+```bash
+pre-commit run --all-files
+```
+
+> **Note:** Some integration tests require AWS credentials. Tests without credentials will fail — CI handles full test coverage.
+
 ### Build from Source
 
 ```bash
