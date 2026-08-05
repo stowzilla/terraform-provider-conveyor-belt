@@ -36,9 +36,9 @@ func testRoutes() []utils.Route {
 
 func testLambdaARNs() map[string]string {
 	return map[string]string{
-		"customer":   "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-customer",
-		"ops":        "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-ops",
-		"onboarding": "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-onboarding",
+		"customer":    "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-customer",
+		"ops":         "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-ops",
+		"onboarding":  "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-onboarding",
 	}
 }
 

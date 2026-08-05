@@ -82,8 +82,8 @@ func (ops *ApiGatewayOperations) FindOrCreateRestAPI(ctx context.Context, name, 
 			apiId := *api.Id
 			utils.Info(ctx, "Found existing API Gateway - adopting it", map[string]interface{}{
 				"gateway": gateway,
-				"api_id":  apiId,
-				"name":    name,
+				"api_id":     apiId,
+				"name":       name,
 			})
 			return apiId, nil
 		}
@@ -647,7 +647,7 @@ func (ops *ApiGatewayOperations) RepairCorsHeaders(ctx context.Context, apiId st
 			HttpMethod: aws.String("OPTIONS"),
 			StatusCode: aws.String("200"),
 			ResponseParameters: map[string]string{
-				"method.response.header.Access-Control-Allow-Origin": fmt.Sprintf("'%s'", frontendUrl),
+				"method.response.header.Access-Control-Allow-Origin":  fmt.Sprintf("'%s'", frontendUrl),
 				"method.response.header.Access-Control-Allow-Methods": func() string {
 					methods := utils.GetMethodsForPath(routes, path)
 					methodSet := make(map[string]bool)

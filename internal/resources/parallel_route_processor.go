@@ -148,6 +148,7 @@ func (p *ParallelRouteProcessor) GetActiveWorkers() int64 {
 	return atomic.LoadInt64(&p.activeWorkers)
 }
 
+
 // ProcessRoutes processes all routes for an API Gateway in parallel.
 // It returns a summary of results including any errors.
 //
@@ -343,10 +344,10 @@ func (p *ParallelRouteProcessor) processPhase1Resources(ctx context.Context, api
 	// Requirements: 7.4
 	phaseDuration := time.Since(phaseStartTime)
 	utils.Info(ctx, "[PARALLEL_ROUTE] Phase 1 completed", map[string]interface{}{
-		"total_paths":  totalPaths,
-		"duration_ms":  phaseDuration.Milliseconds(),
-		"error_count":  len(errors),
-		"levels_count": len(levels),
+		"total_paths":   totalPaths,
+		"duration_ms":   phaseDuration.Milliseconds(),
+		"error_count":   len(errors),
+		"levels_count":  len(levels),
 	})
 
 	return errors
@@ -437,9 +438,9 @@ func (p *ParallelRouteProcessor) processResourceLevel(ctx context.Context, apiId
 					p.resourceCache.Set(parentCacheKey, fetchedParentId)
 					parentResourceId = fetchedParentId
 					utils.Warn(ctx, "[PARALLEL_ROUTE] Parent resource not in cache, fetched from AWS", map[string]interface{}{
-						"parent_path": segment.ParentPath,
-						"parent_id":   fetchedParentId,
-						"child_path":  fullPath,
+						"parent_path":   segment.ParentPath,
+						"parent_id":     fetchedParentId,
+						"child_path":    fullPath,
 					})
 				} else {
 					parentResourceId = cachedParentId
@@ -627,6 +628,7 @@ func (p *ParallelRouteProcessor) fetchExistingResourceOnce(ctx context.Context, 
 
 	return "", fmt.Errorf("resource not found: parent=%s, pathPart=%s", parentId, pathPart)
 }
+
 
 // processPhase2Methods creates methods and integrations for all routes in parallel.
 // Requirements: 1.1, 1.2, 1.4, 5.1, 5.2, 7.1, 7.2, 7.3, 7.4
@@ -1308,7 +1310,7 @@ func (p *ParallelRouteProcessor) ensureCorsResponses(ctx context.Context, apiId,
 		HttpMethod: aws.String("OPTIONS"),
 		StatusCode: aws.String("200"),
 		ResponseParameters: map[string]string{
-			"method.response.header.Access-Control-Allow-Origin": fmt.Sprintf("'%s'", frontendUrl),
+			"method.response.header.Access-Control-Allow-Origin":  fmt.Sprintf("'%s'", frontendUrl),
 			"method.response.header.Access-Control-Allow-Methods": func() string {
 				methods := utils.GetMethodsForPath(routes, path)
 				methodSet := make(map[string]bool)
@@ -1358,10 +1360,10 @@ func (p *ParallelRouteProcessor) retryWithBackoff(ctx context.Context, fn func()
 		if attempt < p.retryConfig.MaxRetries {
 			backoff := p.calculateBackoff(attempt)
 			utils.Warn(ctx, "[PARALLEL_ROUTE] Rate limited during method/integration creation, retrying", map[string]interface{}{
-				"attempt":     attempt + 1,
+				"attempt":    attempt + 1,
 				"max_retries": p.retryConfig.MaxRetries,
-				"backoff":     backoff.String(),
-				"error":       err.Error(),
+				"backoff":    backoff.String(),
+				"error":      err.Error(),
 			})
 			select {
 			case <-ctx.Done():

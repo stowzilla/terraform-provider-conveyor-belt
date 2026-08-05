@@ -15,7 +15,7 @@ import (
 // Priority: lambda.env_vars > shared.env_vars > auto-injected
 func (c *DispatcherConfig) ResolveEnvVarsForAction(lambda string, autoInjectedVars map[string]string) map[string]string {
 	ctx := context.TODO()
-
+	
 	// Start with auto-injected vars (lowest priority)
 	result := make(map[string]string)
 	for k, v := range autoInjectedVars {
@@ -53,7 +53,7 @@ func (c *DispatcherConfig) ResolveEnvVarsForAction(lambda string, autoInjectedVa
 			"config": fmt.Sprintf("%+v", lambdaConfigRaw),
 			"type":   fmt.Sprintf("%T", lambdaConfigRaw),
 		})
-
+		
 		if lambdaConfig, ok := extractMapValue(lambdaConfigRaw); ok {
 			if envVarsRaw, exists := lambdaConfig["env_vars"]; exists {
 				if envVars, ok := extractMapValue(envVarsRaw); ok {
@@ -61,7 +61,7 @@ func (c *DispatcherConfig) ResolveEnvVarsForAction(lambda string, autoInjectedVa
 						"lambda":    lambda,
 						"var_count": len(envVars),
 					})
-
+					
 					for key, value := range envVars {
 						if strVal, ok := extractStringValue(value); ok {
 							utils.Info(ctx, "Adding lambda-specific env var", map[string]interface{}{

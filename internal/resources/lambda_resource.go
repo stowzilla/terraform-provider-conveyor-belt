@@ -42,21 +42,21 @@ type lambdaResource struct {
 
 // LambdaResourceModel describes the resource data model.
 type LambdaResourceModel struct {
-	ID                   types.String `tfsdk:"id"`
-	Name                 types.String `tfsdk:"name"`
-	AppName              types.String `tfsdk:"app_name"`
-	SourceDir            types.String `tfsdk:"source_dir"`
-	SharedDirs           types.List   `tfsdk:"shared_dirs"`
-	GemDirs              types.List   `tfsdk:"gem_dirs"`
-	DockerBuildImage     types.String `tfsdk:"docker_build_image"`
-	EnvVars              types.Map    `tfsdk:"env_vars"`
-	Timeout              types.Int64  `tfsdk:"timeout"`
-	Memory               types.Int64  `tfsdk:"memory"`
-	LayerArns            types.List   `tfsdk:"layer_arns"`
-	Tables               types.List   `tfsdk:"tables"`
-	IamPolicyArns        types.List   `tfsdk:"iam_policy_arns"`
-	Tags                 types.Map    `tfsdk:"tags"`
-	SuppressTableEnvVars types.Bool   `tfsdk:"suppress_table_env_vars"`
+	ID           types.String `tfsdk:"id"`
+	Name         types.String `tfsdk:"name"`
+	AppName      types.String `tfsdk:"app_name"`
+	SourceDir    types.String `tfsdk:"source_dir"`
+	SharedDirs   types.List   `tfsdk:"shared_dirs"`
+	GemDirs      types.List   `tfsdk:"gem_dirs"`
+	DockerBuildImage types.String `tfsdk:"docker_build_image"`
+	EnvVars      types.Map    `tfsdk:"env_vars"`
+	Timeout      types.Int64  `tfsdk:"timeout"`
+	Memory       types.Int64  `tfsdk:"memory"`
+	LayerArns    types.List   `tfsdk:"layer_arns"`
+	Tables       types.List   `tfsdk:"tables"`
+	IamPolicyArns types.List  `tfsdk:"iam_policy_arns"`
+	Tags         types.Map    `tfsdk:"tags"`
+	SuppressTableEnvVars types.Bool `tfsdk:"suppress_table_env_vars"`
 	// Computed outputs
 	Arn          types.String `tfsdk:"arn"`
 	FunctionName types.String `tfsdk:"function_name"`
@@ -69,6 +69,7 @@ type LambdaResourceModel struct {
 func (r *lambdaResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_lambda"
 }
+
 
 // Schema defines the schema for the resource.
 func (r *lambdaResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -187,6 +188,7 @@ func (r *lambdaResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	}
 }
 
+
 // Configure adds the provider configured client to the resource.
 func (r *lambdaResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
@@ -223,12 +225,12 @@ func (r *lambdaResource) getEffectiveTimeout(model *LambdaResourceModel) int64 {
 	if !model.Timeout.IsNull() && !model.Timeout.IsUnknown() {
 		return model.Timeout.ValueInt64()
 	}
-
+	
 	// If provider has a default, use it
 	if r.providerConfig != nil && r.providerConfig.DefaultLambdaTimeout > 0 {
 		return r.providerConfig.DefaultLambdaTimeout
 	}
-
+	
 	// Fall back to hardcoded default
 	return 30
 }
@@ -242,12 +244,12 @@ func (r *lambdaResource) getEffectiveMemory(model *LambdaResourceModel) int64 {
 	if !model.Memory.IsNull() && !model.Memory.IsUnknown() {
 		return model.Memory.ValueInt64()
 	}
-
+	
 	// If provider has a default, use it
 	if r.providerConfig != nil && r.providerConfig.DefaultLambdaMemory > 0 {
 		return r.providerConfig.DefaultLambdaMemory
 	}
-
+	
 	// Fall back to hardcoded default
 	return 128
 }
@@ -256,14 +258,14 @@ func (r *lambdaResource) getEffectiveMemory(model *LambdaResourceModel) int64 {
 // Resource-level tags override provider-level default tags
 func (r *lambdaResource) getEffectiveTags(ctx context.Context, model *LambdaResourceModel) map[string]string {
 	effectiveTags := make(map[string]string)
-
+	
 	// Start with provider default tags
 	if r.providerConfig != nil && r.providerConfig.DefaultTags != nil {
 		for k, v := range r.providerConfig.DefaultTags {
 			effectiveTags[k] = v
 		}
 	}
-
+	
 	// Override with resource-level tags
 	if !model.Tags.IsNull() && !model.Tags.IsUnknown() {
 		resourceTags := make(map[string]string)
@@ -274,7 +276,7 @@ func (r *lambdaResource) getEffectiveTags(ctx context.Context, model *LambdaReso
 			}
 		}
 	}
-
+	
 	return effectiveTags
 }
 
@@ -299,10 +301,10 @@ func (r *lambdaResource) initializeManagers(ctx context.Context, config *Dispatc
 // buildConfigFromModel builds a DispatcherConfig from the resource model
 func (r *lambdaResource) buildConfigFromModel(ctx context.Context, model *LambdaResourceModel) (*DispatcherConfig, error) {
 	config := &DispatcherConfig{
-		Environment:      r.providerConfig.Environment,
-		AwsRegion:        r.providerConfig.AwsRegion,
-		AppName:          model.AppName.ValueString(),
-		LambdaSourceDir:  model.SourceDir.ValueString(),
+		Environment:     r.providerConfig.Environment,
+		AwsRegion:       r.providerConfig.AwsRegion,
+		AppName:         model.AppName.ValueString(),
+		LambdaSourceDir: model.SourceDir.ValueString(),
 		DockerBuildImage: r.providerConfig.DockerBuildImage,
 	}
 
@@ -368,6 +370,7 @@ func (r *lambdaResource) buildConfigFromModel(ctx context.Context, model *Lambda
 
 	return config, nil
 }
+
 
 // Create creates the resource and sets the initial Terraform state.
 func (r *lambdaResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -717,6 +720,7 @@ func (r *lambdaResource) calculateConfigHashForModel(ctx context.Context, model 
 	return fmt.Sprintf("%x", combined)
 }
 
+
 // Read reads the resource state from AWS.
 func (r *lambdaResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state LambdaResourceModel
@@ -794,6 +798,7 @@ func (r *lambdaResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
+
 
 // Update updates the resource and sets the updated Terraform state.
 func (r *lambdaResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -995,6 +1000,7 @@ func (r *lambdaResource) Update(ctx context.Context, req resource.UpdateRequest,
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+
 // Delete deletes the resource and removes the Terraform state.
 func (r *lambdaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state LambdaResourceModel
@@ -1084,6 +1090,7 @@ func (r *lambdaResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	})
 }
 
+
 // ImportState imports an existing Lambda function into Terraform state.
 func (r *lambdaResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	// The import ID can be either:
@@ -1129,3 +1136,4 @@ func (r *lambdaResource) ImportState(ctx context.Context, req resource.ImportSta
 	// Note: source_dir must be provided by the user after import
 	// as we cannot determine it from AWS
 }
+

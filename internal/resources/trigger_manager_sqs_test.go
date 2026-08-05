@@ -46,6 +46,7 @@ func TestExtractSQSTriggers_NoLambdaEntry(t *testing.T) {
 	}
 }
 
+
 // TestExtractSQSTriggers_NoSQSTriggers tests that extractSQSTriggers returns
 // an empty slice when the lambda has no sqs_triggers field.
 func TestExtractSQSTriggers_NoSQSTriggers(t *testing.T) {
@@ -124,6 +125,7 @@ func TestExtractSQSTriggers_CustomBatchSize(t *testing.T) {
 	}
 }
 
+
 // TestExtractSQSTriggers_DisabledTrigger tests extracting an SQS trigger
 // with enabled set to false.
 func TestExtractSQSTriggers_DisabledTrigger(t *testing.T) {
@@ -182,6 +184,7 @@ func TestExtractSQSTriggers_AllFields(t *testing.T) {
 		t.Errorf("Expected Enabled false, got %v", triggers[0].Enabled)
 	}
 }
+
 
 // TestExtractSQSTriggers_MultipleTriggers tests extracting multiple SQS triggers.
 func TestExtractSQSTriggers_MultipleTriggers(t *testing.T) {
@@ -248,6 +251,7 @@ func TestExtractSQSTriggers_MissingQueueArn(t *testing.T) {
 		t.Errorf("Expected 0 triggers (missing queue_arn), got %d", len(triggers))
 	}
 }
+
 
 // TestExtractSQSTriggers_EmptyQueueArn tests that triggers with empty queue_arn are skipped.
 func TestExtractSQSTriggers_EmptyQueueArn(t *testing.T) {
@@ -316,6 +320,7 @@ func TestExtractSQSTriggers_BatchSizeTypes(t *testing.T) {
 	}
 }
 
+
 // ============================================================================
 // getExistingSQSTriggers Tests
 // ============================================================================
@@ -352,6 +357,7 @@ func TestGetExistingSQSTriggers_NoMappings(t *testing.T) {
 		t.Errorf("Expected 0 triggers, got %d", len(triggers))
 	}
 }
+
 
 // TestGetExistingSQSTriggers_SingleSQSMapping tests that getExistingSQSTriggers
 // correctly extracts a single SQS event source mapping.
@@ -405,6 +411,7 @@ func TestGetExistingSQSTriggers_SingleSQSMapping(t *testing.T) {
 		t.Errorf("Expected Enabled true, got %v", triggers[0].Enabled)
 	}
 }
+
 
 // TestGetExistingSQSTriggers_MultipleSQSMappings tests that getExistingSQSTriggers
 // correctly extracts multiple SQS event source mappings.
@@ -472,6 +479,7 @@ func TestGetExistingSQSTriggers_MultipleSQSMappings(t *testing.T) {
 	}
 }
 
+
 // TestGetExistingSQSTriggers_FiltersSQSOnly tests that getExistingSQSTriggers
 // filters out non-SQS event sources (like DynamoDB streams, Kinesis).
 // Requirements: 4.2 - Filter for SQS sources
@@ -528,6 +536,7 @@ func TestGetExistingSQSTriggers_FiltersSQSOnly(t *testing.T) {
 	}
 }
 
+
 // TestGetExistingSQSTriggers_HandlesNilEventSourceArn tests that getExistingSQSTriggers
 // skips mappings with nil EventSourceArn.
 // Requirements: 4.2 - Query existing event source mappings for the Lambda
@@ -575,6 +584,7 @@ func TestGetExistingSQSTriggers_HandlesNilEventSourceArn(t *testing.T) {
 		t.Errorf("Expected QueueArn %s, got %s", validQueueArn, triggers[0].QueueArn)
 	}
 }
+
 
 // TestGetExistingSQSTriggers_StateMapping tests that getExistingSQSTriggers
 // correctly maps various Lambda event source mapping states to Enabled boolean.
@@ -663,6 +673,7 @@ func TestGetExistingSQSTriggers_StateMapping(t *testing.T) {
 	}
 }
 
+
 // TestGetExistingSQSTriggers_DefaultBatchSize tests that getExistingSQSTriggers
 // uses default batch size of 10 when BatchSize is nil.
 // Requirements: 4.2 - Query existing event source mappings for the Lambda
@@ -744,6 +755,7 @@ func TestGetExistingSQSTriggers_DefaultEnabledState(t *testing.T) {
 		t.Errorf("Expected default Enabled true, got %v", triggers[0].Enabled)
 	}
 }
+
 
 // TestGetExistingSQSTriggers_Pagination tests that getExistingSQSTriggers
 // correctly handles paginated results from ListEventSourceMappings.
@@ -834,6 +846,7 @@ func TestGetExistingSQSTriggers_Pagination(t *testing.T) {
 	}
 }
 
+
 // TestGetExistingSQSTriggers_APIError tests that getExistingSQSTriggers
 // returns an error when the ListEventSourceMappings API fails.
 // Requirements: 4.2 - Query existing event source mappings for the Lambda
@@ -906,6 +919,7 @@ func TestGetExistingSQSTriggers_NilUUID(t *testing.T) {
 		t.Errorf("Expected empty UUID, got %s", triggers[0].UUID)
 	}
 }
+
 
 // TestExistingSQSTriggerStruct tests the ExistingSQSTrigger struct.
 func TestExistingSQSTriggerStruct(t *testing.T) {
@@ -1126,7 +1140,7 @@ func TestDiffSQSTriggers_UpdateBothBatchSizeAndEnabled(t *testing.T) {
 	desired := []SQSTriggerConfig{
 		{
 			QueueArn:  queueArn,
-			BatchSize: 100,   // Changed
+			BatchSize: 100, // Changed
 			Enabled:   false, // Changed
 		},
 	}
@@ -1512,6 +1526,7 @@ func TestSQSTriggerUpdateStruct(t *testing.T) {
 		t.Errorf("Unexpected UUID: %s", update.UUID)
 	}
 }
+
 
 // ============================================================================
 // createSQSTrigger Tests

@@ -14,6 +14,7 @@ A Terraform provider that manages AWS serverless infrastructure from a Ruby rout
 - [Custom Domain Support](#custom-domain-support)
 - [Data Sources](#data-sources)
 - [Examples](#examples)
+- [Pre-commit Hooks](#pre-commit-hooks)
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
 
@@ -571,6 +572,37 @@ See the [examples](./examples) directory:
 - [Basic](./examples/basic) — Simple `conveyor_belt_lambda` + `conveyor_belt_gateway` setup
 - [With Cognito](./examples/with-cognito) — Authentication with Cognito across multiple gateways
 - [With Triggers](./examples/with-triggers) — Event-driven architecture with SNS and SQS triggers
+
+## Pre-commit Hooks
+
+Conveyor Belt provides [pre-commit](https://pre-commit.com/) hooks you can use in your infrastructure projects to validate routes, check Lambda syntax, and prevent committing generated files.
+
+### Setup
+
+```yaml
+# .pre-commit-config.yaml in your infrastructure project
+repos:
+  - repo: https://github.com/stowzilla/terraform-provider-conveyor-belt
+    rev: v0.23.0
+    hooks:
+      - id: conveyor-belt-routes-validate
+      - id: conveyor-belt-no-generated-files
+      - id: conveyor-belt-lambda-syntax
+```
+
+```bash
+pre-commit install
+```
+
+### Available Hooks
+
+| Hook | Description | Requires |
+|------|-------------|----------|
+| `conveyor-belt-routes-validate` | Validates `routes.tf.rb` and `schema.tf.rb` using `belt routes` | `belt` CLI |
+| `conveyor-belt-no-generated-files` | Blocks committing `.conveyor-belt/` artifacts | — |
+| `conveyor-belt-lambda-syntax` | Checks Ruby syntax in Lambda source files | `ruby` |
+
+See [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for full setup guide, combining with Terraform hooks, and customization options.
 
 ## Development
 

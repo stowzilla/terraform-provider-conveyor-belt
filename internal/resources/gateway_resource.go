@@ -73,6 +73,7 @@ func (r *gatewayResource) Metadata(_ context.Context, req resource.MetadataReque
 	resp.TypeName = req.ProviderTypeName + "_gateway"
 }
 
+
 // Schema defines the schema for the resource.
 func (r *gatewayResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
@@ -168,6 +169,7 @@ func (r *gatewayResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 	}
 }
 
+
 // Configure adds the provider configured client to the resource.
 func (r *gatewayResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
@@ -259,14 +261,14 @@ func (r *gatewayResource) buildConfigFromModel(ctx context.Context, model *Gatew
 // Resource-level tags override provider-level default tags
 func (r *gatewayResource) getEffectiveTags(ctx context.Context, model *GatewayResourceModel) map[string]string {
 	effectiveTags := make(map[string]string)
-
+	
 	// Start with provider default tags
 	if r.providerConfig != nil && r.providerConfig.DefaultTags != nil {
 		for k, v := range r.providerConfig.DefaultTags {
 			effectiveTags[k] = v
 		}
 	}
-
+	
 	// Override with resource-level tags
 	if !model.Tags.IsNull() && !model.Tags.IsUnknown() {
 		resourceTags := make(map[string]string)
@@ -277,7 +279,7 @@ func (r *gatewayResource) getEffectiveTags(ctx context.Context, model *GatewayRe
 			}
 		}
 	}
-
+	
 	return effectiveTags
 }
 
@@ -336,6 +338,7 @@ func extractLambdaNameFromArn(arn string) string {
 	// If not a valid ARN, return as-is (might be just a function name)
 	return arn
 }
+
 
 // Create creates the resource and sets the initial Terraform state.
 func (r *gatewayResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -573,6 +576,7 @@ func (r *gatewayResource) calculateRoutesHash(routes []utils.Route) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+
 // Read reads the resource state from AWS.
 func (r *gatewayResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state GatewayResourceModel
@@ -665,6 +669,7 @@ func (r *gatewayResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
+
 
 // Update updates the resource and sets the updated Terraform state.
 func (r *gatewayResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -791,6 +796,7 @@ func (r *gatewayResource) Update(ctx context.Context, req resource.UpdateRequest
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
+
 
 // Delete deletes the resource and removes the Terraform state.
 func (r *gatewayResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

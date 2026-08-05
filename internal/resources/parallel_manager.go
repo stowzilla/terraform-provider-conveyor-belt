@@ -343,6 +343,7 @@ func (pm *ParallelManager) createLambdaFunction(
 	return "", fmt.Errorf("failed to create Lambda function after retries: %w", createErr)
 }
 
+
 // UpdateLambdasInParallel updates multiple Lambda functions concurrently
 // It accepts LambdaUpdateTask structs that specify what type of update is needed
 func (pm *ParallelManager) UpdateLambdasInParallel(
@@ -355,13 +356,13 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 	cloudWatchManager *CloudWatchManager,
 ) []LambdaResult {
 	startTime := time.Now()
-
+	
 	// Log parallel execution start with unique prefix for grep
 	utils.Info(ctx, "[PARALLEL_UPDATE] Starting parallel Lambda updates", map[string]interface{}{
 		"total_lambdas": len(updateTasks),
 		"concurrency":   pm.concurrency,
 	})
-
+	
 	// Log which lambdas will be updated
 	lambdaNames := make([]string, len(updateTasks))
 	for i, t := range updateTasks {
@@ -375,7 +376,7 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 	resultChan := make(chan LambdaResult, len(updateTasks))
 
 	sem := make(chan struct{}, pm.concurrency)
-
+	
 	// Track active goroutines for logging
 	var activeCount int32
 	var activeCountMu sync.Mutex
@@ -388,13 +389,13 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 
 			// Acquire semaphore
 			sem <- struct{}{}
-
+			
 			// Track active count
 			activeCountMu.Lock()
 			activeCount++
 			currentActive := activeCount
 			activeCountMu.Unlock()
-
+			
 			taskStart := time.Now()
 			utils.Info(ctx, "[PARALLEL_UPDATE] Lambda update STARTED", map[string]interface{}{
 				"lambda":          t.Action,
@@ -402,7 +403,7 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 				"active_workers":  currentActive,
 				"max_concurrency": pm.concurrency,
 			})
-
+			
 			defer func() {
 				<-sem
 				activeCountMu.Lock()
@@ -411,13 +412,13 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 			}()
 
 			result := pm.updateSingleLambda(ctx, t.Action, t.UpdateType, t.ARN, buildResults[t.Action], routes, lambdaConfig, iamManager, cloudWatchManager)
-
+			
 			utils.Info(ctx, "[PARALLEL_UPDATE] Lambda update COMPLETED", map[string]interface{}{
 				"lambda":      t.Action,
 				"success":     result.Success,
 				"duration_ms": time.Since(taskStart).Milliseconds(),
 			})
-
+			
 			resultChan <- result
 		}(task)
 	}
@@ -430,7 +431,7 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 	for result := range resultChan {
 		results = append(results, result)
 	}
-
+	
 	// Log completion summary
 	successCount := 0
 	failCount := 0
@@ -441,13 +442,13 @@ func (pm *ParallelManager) UpdateLambdasInParallel(
 			failCount++
 		}
 	}
-
+	
 	utils.Info(ctx, "[PARALLEL_UPDATE] Parallel Lambda updates FINISHED", map[string]interface{}{
-		"total_lambdas":     len(updateTasks),
-		"successful":        successCount,
-		"failed":            failCount,
+		"total_lambdas":    len(updateTasks),
+		"successful":       successCount,
+		"failed":           failCount,
 		"total_duration_ms": time.Since(startTime).Milliseconds(),
-		"concurrency_used":  pm.concurrency,
+		"concurrency_used": pm.concurrency,
 	})
 
 	return results
@@ -943,9 +944,9 @@ func (pm *ParallelManager) addLambdaPermissionsForGateway(
 	}
 
 	utils.Info(ctx, "Adding Lambda invoke permissions for API Gateway", map[string]interface{}{
-		"api_id":            apiID,
-		"route_count":       len(routes),
-		"lambdas_needed":    len(lambdasNeeded),
+		"api_id":         apiID,
+		"route_count":    len(routes),
+		"lambdas_needed": len(lambdasNeeded),
 		"lambdas_available": len(lambdaARNs),
 	})
 
@@ -960,10 +961,10 @@ func (pm *ParallelManager) addLambdaPermissionsForGateway(
 			if route.Lambda != "" && !contains(missingLambdas, route.Lambda) {
 				missingLambdas = append(missingLambdas, route.Lambda)
 				utils.Warn(ctx, "Lambda ARN not found in map - cannot add API Gateway permission", map[string]interface{}{
-					"lambda":            route.Lambda,
-					"route_path":        route.Path,
-					"route_verb":        route.Verb,
-					"api_id":            apiID,
+					"lambda":     route.Lambda,
+					"route_path": route.Path,
+					"route_verb": route.Verb,
+					"api_id":     apiID,
 					"available_lambdas": getMapKeys(lambdaARNs),
 				})
 			}
@@ -1217,6 +1218,7 @@ func (pm *ParallelManager) deleteSingleGateway(
 
 	return result
 }
+
 
 // Helper functions
 

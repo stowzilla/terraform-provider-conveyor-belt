@@ -40,12 +40,12 @@ type BuildResult struct {
 
 // PackageBuilder handles parallel building of Lambda deployment packages
 type PackageBuilder struct {
-	sourceDir   string
-	sharedDirs  []string
-	gemDirs     []string
-	concurrency int
-	config      *DispatcherConfig
-	dockerImage string
+	sourceDir    string
+	sharedDirs   []string
+	gemDirs      []string
+	concurrency  int
+	config       *DispatcherConfig
+	dockerImage  string
 }
 
 // PackageBuilderOption is a functional option for configuring PackageBuilder
@@ -766,13 +766,13 @@ require 'aws-sdk-dynamodb'
 
 def lambda_handler(event:, context:)
   puts "Event: #{event.to_json}"
-
+  
   # Environment variables
   app_name = ENV['APP_NAME']
   environment = ENV['ENVIRONMENT']
   lambda = ENV['ACTION']
   tables = ENV['TABLES'] ? ENV['TABLES'].split(',') : []
-
+  
   {
     statusCode: 200,
     headers: {

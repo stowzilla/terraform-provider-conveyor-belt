@@ -24,8 +24,8 @@ type OpenAPISpec struct {
 	Definitions map[string]interface{} `json:"definitions,omitempty"`
 
 	// x-amazon-apigateway extensions at the top level
-	GatewayResponses  map[string]interface{} `json:"x-amazon-apigateway-gateway-responses,omitempty"`
-	RequestValidators map[string]interface{} `json:"x-amazon-apigateway-request-validators,omitempty"`
+	GatewayResponses    map[string]interface{} `json:"x-amazon-apigateway-gateway-responses,omitempty"`
+	RequestValidators   map[string]interface{} `json:"x-amazon-apigateway-request-validators,omitempty"`
 }
 
 // OpenAPIInfo is the info block of the spec.
@@ -192,9 +192,9 @@ func (g *OpenAPIGenerator) buildComponents(
 	if hasCognito && len(g.config.CognitoUserPoolArns) > 0 {
 		components.SecuritySchemes = map[string]interface{}{
 			"CognitoUserPoolAuthorizer": map[string]interface{}{
-				"type":                         "apiKey",
-				"name":                         "Authorization",
-				"in":                           "header",
+				"type": "apiKey",
+				"name": "Authorization",
+				"in":   "header",
 				"x-amazon-apigateway-authtype": "cognito_user_pools",
 				"x-amazon-apigateway-authorizer": map[string]interface{}{
 					"type":         "cognito_user_pools",
@@ -366,11 +366,11 @@ func (g *OpenAPIGenerator) buildOperation(
 		g.config.AwsRegion, lambdaArn)
 
 	op["x-amazon-apigateway-integration"] = map[string]interface{}{
-		"type":                "aws_proxy",
-		"httpMethod":          "POST",
-		"uri":                 integrationUri,
-		"passthroughBehavior": "when_no_match",
-		"contentHandling":     "CONVERT_TO_TEXT",
+		"type":                  "aws_proxy",
+		"httpMethod":            "POST",
+		"uri":                   integrationUri,
+		"passthroughBehavior":   "when_no_match",
+		"contentHandling":       "CONVERT_TO_TEXT",
 	}
 
 	return op

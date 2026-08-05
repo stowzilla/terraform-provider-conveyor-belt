@@ -38,6 +38,7 @@ func NewThreadSafeResourceCache() *ThreadSafeResourceCache {
 	}
 }
 
+
 // GetOrCreate returns a cached resource ID or coordinates creation.
 // If another goroutine is creating the resource, this blocks until complete.
 // The createFn is only called once per unique cacheKey, even with concurrent callers.
@@ -105,6 +106,7 @@ func (c *ThreadSafeResourceCache) GetOrCreate(ctx context.Context, cacheKey stri
 
 	return resourceId, err
 }
+
 
 // Get returns a cached resource ID if it exists.
 // Returns the resource ID and true if found, empty string and false otherwise.

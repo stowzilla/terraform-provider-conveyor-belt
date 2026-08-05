@@ -171,7 +171,7 @@ resource "conveyor_belt" "main" {
   app_name          = "myapp"
   lambda_source_dir = "${path.module}/lambda"
   frontend_urls     = ["https://app.example.com"]
-
+  
   # Use the custom domain
   custom_domain_name = aws_api_gateway_domain_name.api.domain_name
   # Or reference the output:

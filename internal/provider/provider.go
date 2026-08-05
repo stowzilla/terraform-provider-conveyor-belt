@@ -67,12 +67,12 @@ func (p *dispatcherProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 				Description: "Maximum number of concurrent Docker builds for Lambda packages. Default: number of CPUs.",
 			},
 			"docker_build_image": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
 				Description: "Docker image used for building Lambda gem dependencies. Must have Ruby and Bundler installed. " +
 					"Overrides the image derived from ruby_version. Default: derived from ruby_version.",
 			},
 			"ruby_version": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
 				Description: "Ruby version for Lambda runtime and default build image (e.g., \"3.4\", \"4.0\"). " +
 					"Controls both the Lambda execution runtime and the SAM build image used for gem compilation. " +
 					"Default: \"3.4\".",
@@ -83,15 +83,15 @@ func (p *dispatcherProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 
 // dispatcherProviderModel maps provider schema data to a Go type.
 type dispatcherProviderModel struct {
-	Environment            types.String `tfsdk:"environment"`
-	AwsRegion              types.String `tfsdk:"aws_region"`
-	RubyScriptPath         types.String `tfsdk:"ruby_script_path"`
-	DefaultLambdaTimeout   types.Int64  `tfsdk:"default_lambda_timeout"`
-	DefaultLambdaMemory    types.Int64  `tfsdk:"default_lambda_memory"`
-	DefaultTags            types.Map    `tfsdk:"default_tags"`
-	DockerBuildConcurrency types.Int64  `tfsdk:"docker_build_concurrency"`
-	DockerBuildImage       types.String `tfsdk:"docker_build_image"`
-	RubyVersion            types.String `tfsdk:"ruby_version"`
+	Environment               types.String `tfsdk:"environment"`
+	AwsRegion                 types.String `tfsdk:"aws_region"`
+	RubyScriptPath            types.String `tfsdk:"ruby_script_path"`
+	DefaultLambdaTimeout      types.Int64  `tfsdk:"default_lambda_timeout"`
+	DefaultLambdaMemory       types.Int64  `tfsdk:"default_lambda_memory"`
+	DefaultTags               types.Map    `tfsdk:"default_tags"`
+	DockerBuildConcurrency    types.Int64  `tfsdk:"docker_build_concurrency"`
+	DockerBuildImage          types.String `tfsdk:"docker_build_image"`
+	RubyVersion               types.String `tfsdk:"ruby_version"`
 }
 
 // Configure prepares a Dispatcher provider.

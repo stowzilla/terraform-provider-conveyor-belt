@@ -568,6 +568,7 @@ func TestExistingSNSTriggerStruct(t *testing.T) {
 	}
 }
 
+
 // ============================================================================
 // SNS Trigger Diffing Tests
 // ============================================================================
@@ -941,6 +942,7 @@ func TestDiffSNSTriggers_ExistingWithoutSubscriptionArn(t *testing.T) {
 	}
 }
 
+
 // ============================================================================
 // createSNSTrigger Tests
 // ============================================================================
@@ -948,13 +950,13 @@ func TestDiffSNSTriggers_ExistingWithoutSubscriptionArn(t *testing.T) {
 // mockLambdaClientForTrigger implements the Lambda client interface for testing trigger operations.
 // It allows configuring AddPermission, RemovePermission, and GetPolicy behavior to test idempotency.
 type mockLambdaClientForTrigger struct {
-	addPermissionFunc            func(ctx context.Context, params *lambda.AddPermissionInput, optFns ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error)
-	removePermissionFunc         func(ctx context.Context, params *lambda.RemovePermissionInput, optFns ...func(*lambda.Options)) (*lambda.RemovePermissionOutput, error)
-	getPolicyFunc                func(ctx context.Context, params *lambda.GetPolicyInput, optFns ...func(*lambda.Options)) (*lambda.GetPolicyOutput, error)
-	listEventSourceMappingsFunc  func(ctx context.Context, params *lambda.ListEventSourceMappingsInput, optFns ...func(*lambda.Options)) (*lambda.ListEventSourceMappingsOutput, error)
-	createEventSourceMappingFunc func(ctx context.Context, params *lambda.CreateEventSourceMappingInput, optFns ...func(*lambda.Options)) (*lambda.CreateEventSourceMappingOutput, error)
-	updateEventSourceMappingFunc func(ctx context.Context, params *lambda.UpdateEventSourceMappingInput, optFns ...func(*lambda.Options)) (*lambda.UpdateEventSourceMappingOutput, error)
-	deleteEventSourceMappingFunc func(ctx context.Context, params *lambda.DeleteEventSourceMappingInput, optFns ...func(*lambda.Options)) (*lambda.DeleteEventSourceMappingOutput, error)
+	addPermissionFunc             func(ctx context.Context, params *lambda.AddPermissionInput, optFns ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error)
+	removePermissionFunc          func(ctx context.Context, params *lambda.RemovePermissionInput, optFns ...func(*lambda.Options)) (*lambda.RemovePermissionOutput, error)
+	getPolicyFunc                 func(ctx context.Context, params *lambda.GetPolicyInput, optFns ...func(*lambda.Options)) (*lambda.GetPolicyOutput, error)
+	listEventSourceMappingsFunc   func(ctx context.Context, params *lambda.ListEventSourceMappingsInput, optFns ...func(*lambda.Options)) (*lambda.ListEventSourceMappingsOutput, error)
+	createEventSourceMappingFunc  func(ctx context.Context, params *lambda.CreateEventSourceMappingInput, optFns ...func(*lambda.Options)) (*lambda.CreateEventSourceMappingOutput, error)
+	updateEventSourceMappingFunc  func(ctx context.Context, params *lambda.UpdateEventSourceMappingInput, optFns ...func(*lambda.Options)) (*lambda.UpdateEventSourceMappingOutput, error)
+	deleteEventSourceMappingFunc  func(ctx context.Context, params *lambda.DeleteEventSourceMappingInput, optFns ...func(*lambda.Options)) (*lambda.DeleteEventSourceMappingOutput, error)
 }
 
 func (m *mockLambdaClientForTrigger) AddPermission(ctx context.Context, params *lambda.AddPermissionInput, optFns ...func(*lambda.Options)) (*lambda.AddPermissionOutput, error) {
@@ -1161,8 +1163,8 @@ func (tm *testableTriggerManager) getExistingSQSTriggers(ctx context.Context, fu
 // It creates an SQS trigger (event source mapping) for a Lambda function.
 //
 // The function is idempotent (Requirement 6.3):
-//   - If an event source mapping already exists for the same queue (ResourceConflictException),
-//     it finds the existing mapping and updates it rather than failing
+// - If an event source mapping already exists for the same queue (ResourceConflictException),
+//   it finds the existing mapping and updates it rather than failing
 //
 // Returns the UUID of the created or updated event source mapping.
 //
@@ -2380,6 +2382,7 @@ func TestDeleteSNSTrigger_NoSubscriptionArn(t *testing.T) {
 		t.Error("Expected Unsubscribe to NOT be called when SubscriptionArn is empty")
 	}
 }
+
 
 // ============================================================================
 // ReconcileSNSTriggers Orchestration Tests

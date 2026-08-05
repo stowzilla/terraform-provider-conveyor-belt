@@ -11,7 +11,7 @@ require 'aws-sdk-dynamodb'
 def handler(event:, context:)
   path = event['path']
   method = event['httpMethod']
-
+  
   case [method, path]
   when ['GET', '/api/health']
     health_check
@@ -33,18 +33,18 @@ end
 def list_orders
   dynamodb = Aws::DynamoDB::Client.new
   result = dynamodb.scan(table_name: ENV['ORDERS_TABLE'] || 'orders')
-
+  
   { statusCode: 200, body: JSON.generate({ orders: result.items }) }
 end
 
 def create_order(params)
   order_id = SecureRandom.uuid
   order = { id: order_id, **params, created_at: Time.now.iso8601 }
-
+  
   # Save to DynamoDB
   dynamodb = Aws::DynamoDB::Client.new
   dynamodb.put_item(table_name: ENV['ORDERS_TABLE'] || 'orders', item: order)
-
+  
   # Publish event to SNS for order_processor
   if ENV['SNS_TOPIC_ARN']
     sns = Aws::SNS::Client.new
@@ -53,7 +53,7 @@ def create_order(params)
       message: JSON.generate({ event: 'order_created', order: order })
     )
   end
-
+  
   # Send message to SQS for background_worker
   if ENV['SQS_QUEUE_URL']
     sqs = Aws::SQS::Client.new
@@ -62,7 +62,7 @@ def create_order(params)
       message_body: JSON.generate({ task: 'process_order', order_id: order_id })
     )
   end
-
+  
   { statusCode: 201, body: JSON.generate({ order: order }) }
 end
 
@@ -72,7 +72,7 @@ def get_order(id)
     table_name: ENV['ORDERS_TABLE'] || 'orders',
     key: { 'id' => id }
   )
-
+  
   if result.item
     { statusCode: 200, body: JSON.generate({ order: result.item }) }
   else

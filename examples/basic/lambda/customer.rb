@@ -4,7 +4,7 @@
 def handler(event:, context:)
   http_method = event['httpMethod']
   path = event['path']
-
+  
   case http_method
   when 'GET'
     get_customer(event)

@@ -12,7 +12,7 @@ import (
 // with patterns found in actual Lambda files from the user's codebase.
 func TestDependencyAnalyzer_RealWorldPatterns(t *testing.T) {
 	ctx := context.Background()
-
+	
 	tempDir, err := os.MkdirTemp("", "dep-analyzer-realworld-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -22,12 +22,12 @@ func TestDependencyAnalyzer_RealWorldPatterns(t *testing.T) {
 	// Create directory structure similar to real Lambda project
 	dirs := []string{
 		"lib",
-		"helpers",
+		"helpers", 
 		"controllers/customer",
 		"controllers/ops",
 		"models/concerns",
 	}
-
+	
 	for _, dir := range dirs {
 		if err := os.MkdirAll(filepath.Join(tempDir, dir), 0755); err != nil {
 			t.Fatalf("Failed to create dir %s: %v", dir, err)
@@ -47,7 +47,7 @@ module LambdaBase
   end
 end
 `,
-
+		
 		// Helper file
 		"helpers/observability.rb": `module Observability
   def self.init_logger
@@ -115,7 +115,7 @@ require_relative '../../models/concerns/timestampable'
 module CustomerControllers
   class ProfileController < BaseController
     include Concerns::Timestampable
-
+    
     def handle_request
       # profile logic
     end
@@ -159,10 +159,10 @@ end
 	analyzer := NewDependencyAnalyzer(tempDir)
 
 	testCases := []struct {
-		name             string
-		lambda           string
-		expectedMinDeps  int
-		mustIncludePaths []string // relative paths that must be included
+		name               string
+		lambda             string
+		expectedMinDeps    int
+		mustIncludePaths   []string // relative paths that must be included
 	}{
 		{
 			name:            "customer lambda with conditional requires",
@@ -178,7 +178,7 @@ end
 		},
 		{
 			name:            "ops lambda with direct requires",
-			lambda:          "ops",
+			lambda:          "ops", 
 			expectedMinDeps: 4, // ops.rb + lambda_base.rb + customers_controller.rb + application_controller.rb + observability.rb
 			mustIncludePaths: []string{
 				"ops.rb",
@@ -227,7 +227,7 @@ end
 // inside methods are still detected by the regex-based parser.
 func TestDependencyAnalyzer_ConditionalRequireDetection(t *testing.T) {
 	ctx := context.Background()
-
+	
 	tempDir, err := os.MkdirTemp("", "dep-analyzer-conditional-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -239,7 +239,7 @@ func TestDependencyAnalyzer_ConditionalRequireDetection(t *testing.T) {
 	if err := os.MkdirAll(controllerDir, 0755); err != nil {
 		t.Fatalf("Failed to create controller dir: %v", err)
 	}
-
+	
 	controllerFile := filepath.Join(controllerDir, "dynamic_controller.rb")
 	if err := os.WriteFile(controllerFile, []byte("class DynamicController; end"), 0644); err != nil {
 		t.Fatalf("Failed to write controller file: %v", err)
@@ -248,13 +248,13 @@ func TestDependencyAnalyzer_ConditionalRequireDetection(t *testing.T) {
 	// Create lambda with various conditional require patterns found in real code
 	lambdaContent := `def execute(path:, body:, event:)
   method = event['httpMethod']
-
+  
   # Pattern 1: Inside if statement (like stripe.rb)
   if path.start_with?('/api')
     require_relative 'controllers/dynamic_controller'
     controller = DynamicController.new
   end
-
+  
   # Pattern 2: Inside method definition
   route_to_controller(method, path, event, body)
 end
@@ -287,7 +287,7 @@ end
 	// Should detect the require_relative even though it's inside methods/conditionals
 	absLambdaFile, _ := filepath.Abs(lambdaFile)
 	absControllerFile, _ := filepath.Abs(controllerFile)
-
+	
 	foundLambda := false
 	foundController := false
 	for _, dep := range deps {
@@ -305,7 +305,7 @@ end
 	if !foundController {
 		t.Errorf("Expected controller file %s in dependencies, got: %v", absControllerFile, deps)
 	}
-
+	
 	// Should find the controller file even though it appears in multiple require statements
 	// (our regex should find all occurrences)
 	if len(deps) < 2 {

@@ -310,6 +310,7 @@ func sortedRoutes(routes []utils.Route) []utils.Route {
 	return sorted
 }
 
+
 // Feature: trigger-lifecycle-management, Property 7: Hash Includes Triggers
 // *For any* two Lambda configurations that differ only in their `sns_triggers` or
 // `sqs_triggers`, the calculated config hash SHALL be different.

@@ -111,6 +111,7 @@ func TestThreadSafeCacheOperations_Property(t *testing.T) {
 	}
 }
 
+
 // TestThreadSafeCacheOperations_MultipleKeys tests concurrent access with multiple different keys
 func TestThreadSafeCacheOperations_MultipleKeys(t *testing.T) {
 	config := &quick.Config{

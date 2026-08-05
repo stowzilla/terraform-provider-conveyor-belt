@@ -60,7 +60,7 @@ func (tpb *TestablePackageBuilder) BuildPackages(ctx context.Context, lambdaName
 
 			// Track active builds
 			current := atomic.AddInt32(&tpb.activeBuilds, 1)
-
+			
 			// Update max concurrent if this is a new high
 			for {
 				max := atomic.LoadInt32(&tpb.maxConcurrent)
@@ -120,6 +120,7 @@ func (tpb *TestablePackageBuilder) Reset() {
 	atomic.StoreInt32(&tpb.completedCount, 0)
 }
 
+
 // TestConcurrentPackageBuilding_Property tests Property 6: Concurrent Package Building
 // *For any* set of N Lambda packages to build with concurrency limit C,
 // at most C builds SHALL execute simultaneously, and all N packages SHALL eventually complete.
@@ -134,7 +135,7 @@ func TestConcurrentPackageBuilding_Property(t *testing.T) {
 
 		// Generate random number of lambdas (1-20)
 		numLambdas := 1 + r.Intn(20)
-
+		
 		// Generate random concurrency limit (1-10)
 		concurrencyLimit := 1 + r.Intn(10)
 
@@ -247,6 +248,7 @@ func TestConcurrentPackageBuilding_ConcurrencyRespected(t *testing.T) {
 	}
 }
 
+
 // Feature: provider-framework-refactor, Property 7: Build Failure Isolation
 // *For any* set of Lambda packages where one build fails, all other builds SHALL continue to completion,
 // and the final result SHALL report all failures.
@@ -286,7 +288,7 @@ func TestBuildFailureIsolation_Property(t *testing.T) {
 		mockBuild := func(ctx context.Context, lambdaName string) ([]byte, error) {
 			// Simulate some work
 			time.Sleep(time.Duration(1+r.Intn(5)) * time.Millisecond)
-
+			
 			if failingLambdas[lambdaName] {
 				return nil, errors.New("simulated build failure for " + lambdaName)
 			}

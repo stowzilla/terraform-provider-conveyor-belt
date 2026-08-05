@@ -13,11 +13,11 @@ import (
 type ResourceType string
 
 const (
-	ResourceTypeLambda   ResourceType = "lambda"
-	ResourceTypeGateway  ResourceType = "gateway"
-	ResourceTypeIAMRole  ResourceType = "lambda-role"
-	ResourceTypeLogGroup ResourceType = "log"
-	ResourceTypeAlarm    ResourceType = "alarm"
+	ResourceTypeLambda     ResourceType = "lambda"
+	ResourceTypeGateway    ResourceType = "gateway"
+	ResourceTypeIAMRole    ResourceType = "lambda-role"
+	ResourceTypeLogGroup   ResourceType = "log"
+	ResourceTypeAlarm      ResourceType = "alarm"
 )
 
 // AWS naming constraints
@@ -47,7 +47,7 @@ type NamingConfig struct {
 // No random suffixes are used - names are fully deterministic.
 func GenerateResourceName(appName, environment, name string, resourceType ResourceType) string {
 	var baseName string
-
+	
 	switch resourceType {
 	case ResourceTypeIAMRole:
 		// IAM roles include the type suffix: {app_name}-{environment}-{name}-lambda-role
@@ -64,10 +64,10 @@ func GenerateResourceName(appName, environment, name string, resourceType Resour
 	default:
 		baseName = fmt.Sprintf("%s-%s-%s", appName, environment, name)
 	}
-
+	
 	// Get the max length for this resource type
 	maxLength := getMaxLengthForResourceType(resourceType)
-
+	
 	// Truncate with hash if needed
 	return truncateWithHash(baseName, maxLength)
 }
@@ -97,19 +97,19 @@ func truncateWithHash(name string, maxLength int) string {
 	if len(name) <= maxLength {
 		return name
 	}
-
+	
 	// Calculate hash of the full name for uniqueness
 	hash := calculateNameHash(name)
-
+	
 	// Reserve space for hyphen and hash suffix
 	// Format: {truncated_name}-{hash}
 	truncateLength := maxLength - HashSuffixLength - 1 // -1 for the hyphen
-
+	
 	if truncateLength < 1 {
 		// Edge case: maxLength is too small, just use hash
 		return hash[:maxLength]
 	}
-
+	
 	truncatedName := name[:truncateLength]
 	return fmt.Sprintf("%s-%s", truncatedName, hash[:HashSuffixLength])
 }
@@ -122,6 +122,7 @@ func calculateNameHash(name string) string {
 	fullHash := hex.EncodeToString(hasher.Sum(nil))
 	return fullHash[:HashSuffixLength]
 }
+
 
 // ValidationError represents a naming validation error
 type ValidationError struct {
@@ -137,26 +138,26 @@ func (e *ValidationError) Error() string {
 var (
 	// Lambda: alphanumeric, hyphens, underscores (no leading hyphen/underscore)
 	lambdaNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
-
+	
 	// IAM Role: alphanumeric, plus, equals, comma, period, at, underscore, hyphen
 	iamRoleNameRegex = regexp.MustCompile(`^[a-zA-Z0-9+=,.@_-]+$`)
-
+	
 	// API Gateway: alphanumeric, spaces, hyphens, underscores, periods
 	apiGatewayNameRegex = regexp.MustCompile(`^[a-zA-Z0-9 _.-]+$`)
-
+	
 	// CloudWatch Alarm: alphanumeric, hyphens, underscores, periods, colons
 	alarmNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_:.-]+$`)
-
+	
 	// CloudWatch Log Group: alphanumeric, hyphens, underscores, periods, forward slashes
 	logGroupNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
 )
 
 // nameValidationRule defines the parameters for validating a resource name.
 type nameValidationRule struct {
-	field   string
-	maxLen  int
-	regex   *regexp.Regexp
-	message string
+	field    string
+	maxLen   int
+	regex    *regexp.Regexp
+	message  string
 }
 
 var nameValidationRules = map[ResourceType]nameValidationRule{
@@ -236,10 +237,10 @@ func ValidateResourceName(name string, resourceType ResourceType) error {
 func SanitizeName(name string) string {
 	// Replace spaces with hyphens
 	sanitized := strings.ReplaceAll(name, " ", "-")
-
+	
 	// Replace underscores with hyphens for consistency
 	sanitized = strings.ReplaceAll(sanitized, "_", "-")
-
+	
 	// Remove any characters that aren't alphanumeric or hyphens
 	var result strings.Builder
 	for _, r := range sanitized {
@@ -247,17 +248,17 @@ func SanitizeName(name string) string {
 			result.WriteRune(r)
 		}
 	}
-
+	
 	sanitized = result.String()
-
+	
 	// Remove leading/trailing hyphens
 	sanitized = strings.Trim(sanitized, "-")
-
+	
 	// Collapse multiple consecutive hyphens
 	for strings.Contains(sanitized, "--") {
 		sanitized = strings.ReplaceAll(sanitized, "--", "-")
 	}
-
+	
 	// Convert to lowercase for consistency
 	return strings.ToLower(sanitized)
 }
@@ -269,7 +270,7 @@ func GenerateValidResourceName(appName, environment, name string, resourceType R
 	sanitizedAppName := SanitizeName(appName)
 	sanitizedEnv := SanitizeName(environment)
 	sanitizedName := SanitizeName(name)
-
+	
 	if sanitizedAppName == "" {
 		return "", &ValidationError{Field: "app_name", Message: "app_name cannot be empty after sanitization"}
 	}
@@ -279,14 +280,14 @@ func GenerateValidResourceName(appName, environment, name string, resourceType R
 	if sanitizedName == "" {
 		return "", &ValidationError{Field: "name", Message: "name cannot be empty after sanitization"}
 	}
-
+	
 	// Generate the resource name
 	generatedName := GenerateResourceName(sanitizedAppName, sanitizedEnv, sanitizedName, resourceType)
-
+	
 	// Validate the generated name
 	if err := ValidateResourceName(generatedName, resourceType); err != nil {
 		return "", fmt.Errorf("generated name failed validation: %w", err)
 	}
-
+	
 	return generatedName, nil
 }

@@ -4,7 +4,7 @@
 def handler(event:, context:)
   http_method = event['httpMethod']
   path = event['path']
-
+  
   case http_method
   when 'GET'
     list_orders(event)
@@ -36,7 +36,7 @@ end
 
 def create_order(event)
   body = JSON.parse(event['body'] || '{}')
-
+  
   {
     statusCode: 201,
     headers: {

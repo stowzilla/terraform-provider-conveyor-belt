@@ -118,6 +118,7 @@ func (tpm *TestableParallelManager) Reset() {
 	atomic.StoreInt32(&tpm.completedCount, 0)
 }
 
+
 // TestParallelUpdateIsolation_Property tests Property 2: Parallel Update Isolation
 // *For any* set of Lambda update tasks, if one task fails, all other tasks SHALL complete
 // (success or failure) and the final result SHALL report all failures.
@@ -255,6 +256,7 @@ func TestParallelUpdateIsolation_Property(t *testing.T) {
 		t.Errorf("Parallel update isolation property failed: %v", err)
 	}
 }
+
 
 // TestParallelUpdateIsolation_AllFailures tests that even when all updates fail, they all complete
 func TestParallelUpdateIsolation_AllFailures(t *testing.T) {
@@ -423,6 +425,7 @@ func TestParallelUpdateIsolation_ConcurrencyRespected(t *testing.T) {
 		})
 	}
 }
+
 
 // TestParallelUpdateIsolation_MixedUpdateTypes tests updates with different update types
 // (source-only, config-only, full updates)
@@ -671,6 +674,7 @@ func TestParallelManager_SingleLambda(t *testing.T) {
 	}
 }
 
+
 // ============================================================================
 // Trigger Integration Tests
 // ============================================================================
@@ -833,9 +837,9 @@ func TestTriggerIntegration_UpdateTypeConfig(t *testing.T) {
 	// the correct update types trigger reconciliation
 
 	testCases := []struct {
-		name            string
-		updateType      LambdaUpdateType
-		shouldReconcile bool
+		name               string
+		updateType         LambdaUpdateType
+		shouldReconcile    bool
 	}{
 		{
 			name:            "Config update should reconcile triggers",

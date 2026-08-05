@@ -21,8 +21,8 @@ type DependencyAnalyzer struct {
 	sharedDirs []string
 
 	// Cache for dependency analysis results
-	cache   map[string]*dependencyEntry
-	cacheMu sync.RWMutex
+	cache      map[string]*dependencyEntry
+	cacheMu    sync.RWMutex
 
 	// Track file modification times for cache invalidation
 	modTimes   map[string]time.Time
@@ -130,8 +130,8 @@ func (da *DependencyAnalyzer) AnalyzeDependencies(ctx context.Context, lambdaNam
 	da.updateModTime(absRubyFile)
 
 	utils.Debug(ctx, "Completed dependency analysis", map[string]interface{}{
-		"lambda":    lambdaName,
-		"dep_count": len(allDeps),
+		"lambda":     lambdaName,
+		"dep_count":  len(allDeps),
 	})
 
 	return allDeps, nil
@@ -349,6 +349,7 @@ func uniqueStrings(input []string) []string {
 
 	return result
 }
+
 
 // GetAffectedLambdas returns a list of Lambda names that are affected by changes to the given files.
 // This is the main entry point for smart change detection.
