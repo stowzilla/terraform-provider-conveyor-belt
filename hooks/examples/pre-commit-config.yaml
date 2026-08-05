@@ -9,15 +9,17 @@
 #   - terraform CLI (for fmt/validate hooks)
 #   - belt CLI (for route validation): gem install belt
 #   - ruby (for syntax checking)
+#   - checkov (for security scanning): pip install checkov
 
 repos:
-  # Conveyor Belt hooks — validate routes and block generated files
+  # Conveyor Belt hooks — validate routes, block generated files, security scan
   - repo: https://github.com/stowzilla/terraform-provider-conveyor-belt
     rev: v0.23.0  # Use the latest provider version
     hooks:
       - id: conveyor-belt-routes-validate
       - id: conveyor-belt-no-generated-files
       - id: conveyor-belt-lambda-syntax
+      - id: conveyor-belt-checkov
 
   # Terraform formatting and validation
   - repo: https://github.com/antonbabenko/pre-commit-terraform
@@ -25,6 +27,11 @@ repos:
     hooks:
       - id: terraform_fmt
       - id: terraform_validate
+      # Full Checkov scan (all built-in AWS/Terraform policies)
+      - id: terraform_checkov
+        args:
+          - --args=--quiet
+          - --args=--compact
 
   # General file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -8,6 +8,7 @@
 #       hooks:
 #         - id: conveyor-belt-routes-validate
 #         - id: conveyor-belt-no-generated-files
+#         - id: conveyor-belt-checkov
 
 - id: conveyor-belt-routes-validate
   name: Validate Conveyor Belt routes
@@ -33,3 +34,11 @@
   files: '\.rb$'
   exclude: '(routes\.tf\.rb|schema\.tf\.rb|Gemfile|Rakefile|\.gemspec)$'
   types: [ruby]
+
+- id: conveyor-belt-checkov
+  name: Checkov security scan (Conveyor Belt policies)
+  description: Run Checkov with custom policies to validate Conveyor Belt infrastructure security
+  entry: hooks/scripts/checkov-scan.sh
+  language: script
+  files: '\.tf$'
+  types: [terraform]

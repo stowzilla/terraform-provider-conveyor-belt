@@ -575,7 +575,7 @@ See the [examples](./examples) directory:
 
 ## Pre-commit Hooks
 
-Conveyor Belt provides [pre-commit](https://pre-commit.com/) hooks you can use in your infrastructure projects to validate routes, check Lambda syntax, and prevent committing generated files.
+Conveyor Belt provides [pre-commit](https://pre-commit.com/) hooks you can use in your infrastructure projects to validate routes, check Lambda syntax, prevent committing generated files, and **run Checkov security scans** against your configuration.
 
 ### Setup
 
@@ -588,6 +588,7 @@ repos:
       - id: conveyor-belt-routes-validate
       - id: conveyor-belt-no-generated-files
       - id: conveyor-belt-lambda-syntax
+      - id: conveyor-belt-checkov
 ```
 
 ```bash
@@ -601,8 +602,24 @@ pre-commit install
 | `conveyor-belt-routes-validate` | Validates `routes.tf.rb` and `schema.tf.rb` using `belt routes` | `belt` CLI |
 | `conveyor-belt-no-generated-files` | Blocks committing `.conveyor-belt/` artifacts | — |
 | `conveyor-belt-lambda-syntax` | Checks Ruby syntax in Lambda source files | `ruby` |
+| `conveyor-belt-checkov` | Runs Checkov with custom policies for Conveyor Belt security | `checkov` |
 
-See [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for full setup guide, combining with Terraform hooks, and customization options.
+### Checkov Security Policies
+
+The `conveyor-belt-checkov` hook ships with custom policies that validate your infrastructure conforms to security best practices:
+
+| Policy | What It Checks |
+|--------|---------------|
+| `CKV_CONVEYOR_1` | CloudWatch alarms are enabled |
+| `CKV_CONVEYOR_2` | `friendly_errors` is disabled (prevents info leakage) |
+| `CKV_CONVEYOR_3` | Cognito authentication is configured |
+| `CKV_CONVEYOR_4` | Alarm SNS topic is configured |
+| `CKV_CONVEYOR_5` | Lambda timeout within bounds |
+| `CKV_CONVEYOR_6` | Shared IAM policies are defined |
+
+You can also write your own custom policies — see [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for details.
+
+See [docs/PRE_COMMIT_HOOKS.md](docs/PRE_COMMIT_HOOKS.md) for full setup guide, combining with Terraform/Checkov hooks, CI integration, and customization options.
 
 ## Development
 
