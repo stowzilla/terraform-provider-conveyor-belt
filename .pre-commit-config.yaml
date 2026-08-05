@@ -1,0 +1,49 @@
+# See https://pre-commit.com for more information
+repos:
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+
+  # Go hooks
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: gofmt
+        description: Format Go code
+        entry: gofmt -w
+        language: system
+        types: [go]
+
+      - id: go-vet
+        name: go vet
+        description: Static analysis
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-build
+        name: go build
+        description: Verify compilation
+        entry: go build ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      # Tests run on push only (they take longer)
+      # Note: Some integration tests require AWS credentials
+      - id: go-test
+        name: go test
+        description: Run tests (integration tests may fail without AWS credentials)
+        entry: go test -short ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-push]
