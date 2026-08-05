@@ -18,15 +18,15 @@ lambda_config = {
   order_processor = {
     # SNS trigger - invoked when message published to topic
     sns_triggers = [
-      { 
+      {
         topic_arn   = aws_sns_topic.orders.arn
         statement_id = "allow-sns-orders"  # Optional, auto-generated if omitted
       }
     ]
-    
+
     # SQS trigger - polls queue for messages
     sqs_triggers = [
-      { 
+      {
         queue_arn  = aws_sqs_queue.jobs.arn
         batch_size = 10   # Default: 10, range: 1-10000
         enabled    = true # Default: true
@@ -162,7 +162,7 @@ resource "conveyor_belt" "main" {
   app_name          = "myapp"
   lambda_source_dir = "${path.module}/lambda"
   frontend_urls     = ["https://app.example.com"]
-  
+
   lambda_config = {
     # API Lambda publishes to SNS/SQS
     api = {
@@ -171,12 +171,12 @@ resource "conveyor_belt" "main" {
         SQS_QUEUE_URL = aws_sqs_queue.background.url
       }
     }
-    
+
     # Triggered by SNS
     order_processor = {
       sns_triggers = [{ topic_arn = aws_sns_topic.orders.arn }]
     }
-    
+
     # Triggered by SQS
     background_worker = {
       timeout = 300

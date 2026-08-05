@@ -284,7 +284,7 @@ func TestRequireStatementAnalysis_ConditionalRequires(t *testing.T) {
 	if err := os.MkdirAll(controllerDir, 0755); err != nil {
 		t.Fatalf("Failed to create controller dir: %v", err)
 	}
-	
+
 	controllerFile := filepath.Join(controllerDir, "my_controller.rb")
 	if err := os.WriteFile(controllerFile, []byte("class MyController; end"), 0644); err != nil {
 		t.Fatalf("Failed to write controller file: %v", err)
@@ -321,7 +321,7 @@ end
 	// Should include both the lambda file and the controller file
 	absLambdaFile, _ := filepath.Abs(lambdaFile)
 	absControllerFile, _ := filepath.Abs(controllerFile)
-	
+
 	foundLambda := false
 	foundController := false
 	for _, dep := range deps {
@@ -354,7 +354,7 @@ func TestRequireStatementAnalysis_DeeplyNestedPaths(t *testing.T) {
 	if err := os.MkdirAll(concernsDir, 0755); err != nil {
 		t.Fatalf("Failed to create concerns dir: %v", err)
 	}
-	
+
 	concernFile := filepath.Join(concernsDir, "timestampable.rb")
 	if err := os.WriteFile(concernFile, []byte("module Timestampable; end"), 0644); err != nil {
 		t.Fatalf("Failed to write concern file: %v", err)
@@ -397,9 +397,9 @@ end
 	absLambdaFile, _ := filepath.Abs(lambdaFile)
 	absModelFile, _ := filepath.Abs(modelFile)
 	absConcernFile, _ := filepath.Abs(concernFile)
-	
+
 	expectedFiles := []string{absLambdaFile, absModelFile, absConcernFile}
-	
+
 	for _, expectedFile := range expectedFiles {
 		found := false
 		for _, dep := range deps {
@@ -413,7 +413,6 @@ end
 		}
 	}
 }
-
 
 // Feature: provider-framework-refactor, Property 9: Dependency Analysis Fallback
 // *For any* Lambda where dependency analysis fails (parse error, missing file, etc.),

@@ -27,24 +27,24 @@ import (
 // mockApiGatewayClient is a mock implementation for testing
 type mockApiGatewayClient struct {
 	// Track concurrent operations
-	activeOps     int64
-	maxActiveOps  int64
-	activeOpsMu   sync.Mutex
-	
+	activeOps    int64
+	maxActiveOps int64
+	activeOpsMu  sync.Mutex
+
 	// Track all operations
-	totalOps      int64
-	
+	totalOps int64
+
 	// Simulated delay for operations
-	opDelay       time.Duration
-	
+	opDelay time.Duration
+
 	// Error injection
-	errorRate     float64
-	errorOnPaths  map[string]error
-	
+	errorRate    float64
+	errorOnPaths map[string]error
+
 	// Resources created
-	resources     map[string]string // path -> resourceId
-	resourcesMu   sync.Mutex
-	
+	resources   map[string]string // path -> resourceId
+	resourcesMu sync.Mutex
+
 	// Root resource ID
 	rootResourceId string
 }
@@ -60,14 +60,14 @@ func newMockApiGatewayClient() *mockApiGatewayClient {
 
 func (m *mockApiGatewayClient) trackOperation() func() {
 	atomic.AddInt64(&m.totalOps, 1)
-	
+
 	m.activeOpsMu.Lock()
 	m.activeOps++
 	if m.activeOps > m.maxActiveOps {
 		m.maxActiveOps = m.activeOps
 	}
 	m.activeOpsMu.Unlock()
-	
+
 	return func() {
 		m.activeOpsMu.Lock()
 		m.activeOps--
@@ -78,7 +78,7 @@ func (m *mockApiGatewayClient) trackOperation() func() {
 func (m *mockApiGatewayClient) GetResources(ctx context.Context, input *apigateway.GetResourcesInput, opts ...func(*apigateway.Options)) (*apigateway.GetResourcesOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	// Return root resource
 	return &apigateway.GetResourcesOutput{
 		Items: []apigatewayTypes.Resource{
@@ -93,25 +93,25 @@ func (m *mockApiGatewayClient) GetResources(ctx context.Context, input *apigatew
 func (m *mockApiGatewayClient) CreateResource(ctx context.Context, input *apigateway.CreateResourceInput, opts ...func(*apigateway.Options)) (*apigateway.CreateResourceOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	pathPart := *input.PathPart
-	
+
 	// Check for injected errors
 	if err, exists := m.errorOnPaths[pathPart]; exists {
 		return nil, err
 	}
-	
+
 	// Random error injection
 	if m.errorRate > 0 && rand.Float64() < m.errorRate {
 		return nil, fmt.Errorf("simulated error")
 	}
-	
+
 	resourceId := fmt.Sprintf("resource-%s-%d", pathPart, time.Now().UnixNano())
-	
+
 	m.resourcesMu.Lock()
 	m.resources[pathPart] = resourceId
 	m.resourcesMu.Unlock()
-	
+
 	return &apigateway.CreateResourceOutput{
 		Id:       aws.String(resourceId),
 		PathPart: input.PathPart,
@@ -122,7 +122,7 @@ func (m *mockApiGatewayClient) CreateResource(ctx context.Context, input *apigat
 func (m *mockApiGatewayClient) GetMethod(ctx context.Context, input *apigateway.GetMethodInput, opts ...func(*apigateway.Options)) (*apigateway.GetMethodOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	// Method doesn't exist
 	return nil, fmt.Errorf("NotFoundException: method not found")
 }
@@ -130,7 +130,7 @@ func (m *mockApiGatewayClient) GetMethod(ctx context.Context, input *apigateway.
 func (m *mockApiGatewayClient) PutMethod(ctx context.Context, input *apigateway.PutMethodInput, opts ...func(*apigateway.Options)) (*apigateway.PutMethodOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.PutMethodOutput{
 		HttpMethod:        input.HttpMethod,
 		AuthorizationType: input.AuthorizationType,
@@ -140,7 +140,7 @@ func (m *mockApiGatewayClient) PutMethod(ctx context.Context, input *apigateway.
 func (m *mockApiGatewayClient) GetIntegration(ctx context.Context, input *apigateway.GetIntegrationInput, opts ...func(*apigateway.Options)) (*apigateway.GetIntegrationOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	// Integration doesn't exist
 	return nil, fmt.Errorf("NotFoundException: integration not found")
 }
@@ -148,7 +148,7 @@ func (m *mockApiGatewayClient) GetIntegration(ctx context.Context, input *apigat
 func (m *mockApiGatewayClient) PutIntegration(ctx context.Context, input *apigateway.PutIntegrationInput, opts ...func(*apigateway.Options)) (*apigateway.PutIntegrationOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.PutIntegrationOutput{
 		Type: input.Type,
 		Uri:  input.Uri,
@@ -158,7 +158,7 @@ func (m *mockApiGatewayClient) PutIntegration(ctx context.Context, input *apigat
 func (m *mockApiGatewayClient) PutMethodResponse(ctx context.Context, input *apigateway.PutMethodResponseInput, opts ...func(*apigateway.Options)) (*apigateway.PutMethodResponseOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.PutMethodResponseOutput{
 		StatusCode: input.StatusCode,
 	}, nil
@@ -167,7 +167,7 @@ func (m *mockApiGatewayClient) PutMethodResponse(ctx context.Context, input *api
 func (m *mockApiGatewayClient) PutIntegrationResponse(ctx context.Context, input *apigateway.PutIntegrationResponseInput, opts ...func(*apigateway.Options)) (*apigateway.PutIntegrationResponseOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.PutIntegrationResponseOutput{
 		StatusCode: input.StatusCode,
 	}, nil
@@ -176,7 +176,7 @@ func (m *mockApiGatewayClient) PutIntegrationResponse(ctx context.Context, input
 func (m *mockApiGatewayClient) GetAuthorizers(ctx context.Context, input *apigateway.GetAuthorizersInput, opts ...func(*apigateway.Options)) (*apigateway.GetAuthorizersOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.GetAuthorizersOutput{
 		Items: []apigatewayTypes.Authorizer{},
 	}, nil
@@ -185,7 +185,7 @@ func (m *mockApiGatewayClient) GetAuthorizers(ctx context.Context, input *apigat
 func (m *mockApiGatewayClient) CreateAuthorizer(ctx context.Context, input *apigateway.CreateAuthorizerInput, opts ...func(*apigateway.Options)) (*apigateway.CreateAuthorizerOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.CreateAuthorizerOutput{
 		Id:   aws.String("authorizer-id"),
 		Name: input.Name,
@@ -196,7 +196,7 @@ func (m *mockApiGatewayClient) CreateAuthorizer(ctx context.Context, input *apig
 func (m *mockApiGatewayClient) UpdateMethod(ctx context.Context, input *apigateway.UpdateMethodInput, opts ...func(*apigateway.Options)) (*apigateway.UpdateMethodOutput, error) {
 	defer m.trackOperation()()
 	time.Sleep(m.opDelay)
-	
+
 	return &apigateway.UpdateMethodOutput{
 		HttpMethod: input.HttpMethod,
 	}, nil
@@ -224,9 +224,9 @@ func TestConcurrencyLimitRespected_Property(t *testing.T) {
 
 		// Create processor with the concurrency limit
 		dispatcherConfig := &DispatcherConfig{
-			AppName:     "test-app",
-			Environment: "test",
-			AwsRegion:   "us-east-1",
+			AppName:      "test-app",
+			Environment:  "test",
+			AwsRegion:    "us-east-1",
 			AwsAccountId: "123456789012",
 		}
 
@@ -299,7 +299,6 @@ func TestConcurrencyLimitRespected_Property(t *testing.T) {
 		t.Errorf("Concurrency limit property failed: %v", err)
 	}
 }
-
 
 // Feature: parallel-route-processing, Property 8: Error Aggregation
 // *For any* set of routes where some routes fail processing, the Route_Processor SHALL
@@ -1046,7 +1045,6 @@ func TestRouteProcessingResult_NewAndHelpers(t *testing.T) {
 	}
 }
 
-
 // Feature: parallel-route-processing, Property 5: Rate Limit Retry with Backoff
 // *For any* AWS rate limit error (429), the Route_Processor SHALL retry with
 // exponentially increasing delays until success or max retries exceeded.
@@ -1063,8 +1061,8 @@ func TestRateLimitRetryWithBackoff_Property(t *testing.T) {
 		r := rand.New(rand.NewSource(seed))
 
 		// Generate random retry configuration
-		maxRetries := 2 + r.Intn(4) // 2-5 retries
-		initialBackoffMs := 10 + r.Intn(50) // 10-59ms
+		maxRetries := 2 + r.Intn(4)            // 2-5 retries
+		initialBackoffMs := 10 + r.Intn(50)    // 10-59ms
 		backoffFactor := 1.5 + r.Float64()*1.5 // 1.5-3.0
 
 		// Generate random number of rate limit errors before success (0 to maxRetries)
@@ -1420,7 +1418,6 @@ func TestRateLimitRetryWithBackoff_RateLimitErrorVariants(t *testing.T) {
 		}
 	}
 }
-
 
 // Feature: parallel-route-processing, Property 9: Sequential Equivalence
 // *For any* set of routes, the final API Gateway configuration produced by parallel processing
@@ -1969,7 +1966,6 @@ func TestSequentialEquivalence_ConcurrencyOneEqualsSequential(t *testing.T) {
 		}
 	}
 }
-
 
 // Feature: parallel-route-processing, Property 2: Unique Resource Creation
 // *For any* set of routes where multiple routes share common path segments, exactly one

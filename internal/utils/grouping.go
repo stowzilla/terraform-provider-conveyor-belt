@@ -8,13 +8,13 @@ import (
 
 // Route represents a route from the data source
 type Route struct {
-	Name          string
-	Verb          string
-	Path          string
-	Gateway       string // Renamed from Controller - determines API Gateway
-	Lambda        string // Renamed from Action - determines Lambda function
-	Auth          string
-	Tables        []string
+	Name            string
+	Verb            string
+	Path            string
+	Gateway         string // Renamed from Controller - determines API Gateway
+	Lambda          string // Renamed from Action - determines Lambda function
+	Auth            string
+	Tables          []string
 	RequestModel    string // Name of the request model (from contracts.rb)
 	ResponseModel   string // Name of the response model (from contracts.rb)
 	ResponseContext string // Explicit context override for response model; empty = use Gateway
@@ -22,23 +22,23 @@ type Route struct {
 
 // ModelDefinition represents a JSON Schema model from contracts.rb
 type ModelDefinition struct {
-	Name        string                       `json:"name"`
-	Description string                       `json:"description"`
-	Properties  map[string]ModelProperty      `json:"properties"`
-	Required    []string                     `json:"required"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Properties  map[string]ModelProperty `json:"properties"`
+	Required    []string                 `json:"required"`
 }
 
 // ModelProperty represents a single property within a model
 type ModelProperty struct {
-	Type        string                       `json:"type"`
-	Format      string                       `json:"format,omitempty"`
-	Description string                       `json:"description,omitempty"`
-	Enum        []string                     `json:"enum,omitempty"`
-	MaxLength   int                          `json:"max_length,omitempty"`
-	MinLength   int                          `json:"min_length,omitempty"`
-	Items       *ModelProperty               `json:"items,omitempty"`
-	Properties  map[string]ModelProperty      `json:"properties,omitempty"`
-	Required    []string                     `json:"required,omitempty"`
+	Type        string                   `json:"type"`
+	Format      string                   `json:"format,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	Enum        []string                 `json:"enum,omitempty"`
+	MaxLength   int                      `json:"max_length,omitempty"`
+	MinLength   int                      `json:"min_length,omitempty"`
+	Items       *ModelProperty           `json:"items,omitempty"`
+	Properties  map[string]ModelProperty `json:"properties,omitempty"`
+	Required    []string                 `json:"required,omitempty"`
 }
 
 // SortRoutes sorts routes deterministically for consistent hashing.

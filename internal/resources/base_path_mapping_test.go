@@ -294,7 +294,7 @@ func randomGatewayName(r *rand.Rand, minLen, maxLen int) string {
 // randomDomainName generates a random valid domain name
 func randomDomainName(r *rand.Rand) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz"
-	
+
 	// Generate subdomain (3-10 chars)
 	subdomainLen := 3 + r.Intn(8)
 	subdomain := make([]byte, subdomainLen)

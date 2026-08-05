@@ -46,7 +46,7 @@ provider "conveyor-belt" {
   aws_region             = var.aws_region
   default_lambda_timeout = 30
   default_lambda_memory  = 256
-  
+
   default_tags = {
     Application = var.app_name
     Environment = var.environment
@@ -59,11 +59,11 @@ resource "conveyor_belt_lambda" "customer" {
   name       = "customer"
   app_name   = var.app_name
   source_dir = "${path.module}/lambda"
-  
+
   env_vars = {
     LOG_LEVEL = "info"
   }
-  
+
   tables = ["customers"]
 }
 
@@ -71,15 +71,15 @@ resource "conveyor_belt_lambda" "orders" {
   name       = "orders"
   app_name   = var.app_name
   source_dir = "${path.module}/lambda"
-  
+
   # Override provider defaults
   timeout = 60
   memory  = 512
-  
+
   env_vars = {
     LOG_LEVEL = "debug"
   }
-  
+
   tables = ["orders", "customers"]
 }
 
@@ -87,11 +87,11 @@ resource "conveyor_belt_lambda" "orders" {
 resource "conveyor_belt_gateway" "api" {
   name     = "api"
   app_name = var.app_name
-  
+
   frontend_urls = [
     "https://app.example.com"
   ]
-  
+
   routes = [
     {
       name       = "get_customer"

@@ -305,7 +305,6 @@ func TestResourceIndependence_ModelConfigHashIsolation(t *testing.T) {
 	}
 }
 
-
 // Feature: provider-framework-refactor, Property 11: Configuration Precedence
 // *For any* configuration setting S, if S is specified at both provider level and
 // resource level, the resource-level value SHALL be used. If only provider level

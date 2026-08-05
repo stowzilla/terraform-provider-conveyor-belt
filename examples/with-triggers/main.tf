@@ -46,7 +46,7 @@ provider "conveyor-belt" {
   aws_region             = var.aws_region
   default_lambda_timeout = 30
   default_lambda_memory  = 256
-  
+
   default_tags = {
     Application = var.app_name
     Environment = var.environment
@@ -83,9 +83,9 @@ resource "conveyor_belt" "main" {
   source            = "${path.module}/routes.tf.rb"
   app_name          = var.app_name
   lambda_source_dir = "${path.module}/lambda"
-  
+
   frontend_urls = ["https://app.example.com"]
-  
+
   lambda_config = {
     # Shared configuration for all Lambdas
     shared = {
@@ -93,7 +93,7 @@ resource "conveyor_belt" "main" {
         LOG_LEVEL = "info"
       }
     }
-    
+
     # API Lambda - publishes events to SNS
     api = {
       env_vars = {
@@ -104,7 +104,7 @@ resource "conveyor_belt" "main" {
         { name = aws_dynamodb_table.orders.name, access = "read_write" }
       ]
     }
-    
+
     # Order processor - triggered by SNS topic
     # When a message is published to the topic, this Lambda is invoked
     order_processor = {
@@ -120,7 +120,7 @@ resource "conveyor_belt" "main" {
         { topic_arn = aws_sns_topic.order_events.arn }
       ]
     }
-    
+
     # Background worker - triggered by SQS queue
     # Polls the queue and processes messages in batches
     background_worker = {
@@ -134,7 +134,7 @@ resource "conveyor_belt" "main" {
       ]
       # SQS trigger configuration
       sqs_triggers = [
-        { 
+        {
           queue_arn  = aws_sqs_queue.background_jobs.arn
           batch_size = 10  # Process up to 10 messages per invocation
         }

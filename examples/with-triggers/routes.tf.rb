@@ -7,7 +7,7 @@
 namespace :api do
   # Order management endpoints
   resources :orders, only: [:index, :create, :show]
-  
+
   # Health check
   get "/health"
 end

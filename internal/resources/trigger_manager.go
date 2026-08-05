@@ -1000,8 +1000,8 @@ func (tm *TriggerManager) ReconcileSNSTriggers(
 	desiredTriggers []SNSTriggerConfig,
 ) error {
 	utils.Info(ctx, "Reconciling SNS triggers", map[string]interface{}{
-		"function":       functionName,
-		"desired_count":  len(desiredTriggers),
+		"function":      functionName,
+		"desired_count": len(desiredTriggers),
 	})
 
 	// Step 1: Get existing SNS triggers from AWS
@@ -1205,8 +1205,8 @@ type SQSTriggerDiffResult struct {
 // It creates an event source mapping that connects the SQS queue to the Lambda.
 //
 // The function is idempotent (Requirement 6.3):
-// - If an event source mapping already exists for the same queue (ResourceConflictException),
-//   it finds the existing mapping and updates it rather than failing
+//   - If an event source mapping already exists for the same queue (ResourceConflictException),
+//     it finds the existing mapping and updates it rather than failing
 //
 // The operation is wrapped with retry logic for transient failures (Requirement 6.5).
 //

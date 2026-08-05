@@ -68,7 +68,7 @@ echo "Checking OPTIONS methods for missing integration responses..."
 for resource in $(aws apigateway get-resources --rest-api-id $API_ID --query "items[?resourceMethods.OPTIONS].[id,path]" --output text); do
   resource_id=$(echo $resource | cut -f1)
   path=$(echo $resource | cut -f2)
-  
+
   if ! aws apigateway get-integration-response --rest-api-id $API_ID --resource-id $resource_id --http-method OPTIONS --status-code 200 >/dev/null 2>&1; then
     echo "MISSING: $path (resource: $resource_id)"
   fi

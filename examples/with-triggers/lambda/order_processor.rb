@@ -11,7 +11,7 @@ def handler(event:, context:)
   event['Records'].each do |record|
     process_sns_record(record)
   end
-  
+
   { statusCode: 200, body: JSON.generate({ processed: event['Records'].length }) }
 end
 
@@ -19,9 +19,9 @@ def process_sns_record(record)
   # Extract the SNS message
   sns_message = record['Sns']
   message_body = JSON.parse(sns_message['Message'])
-  
+
   puts "Processing SNS message: #{message_body['event']}"
-  
+
   case message_body['event']
   when 'order_created'
     process_new_order(message_body['order'])
@@ -32,7 +32,7 @@ end
 
 def process_new_order(order)
   puts "Processing new order: #{order['id']}"
-  
+
   # Update order status in DynamoDB
   dynamodb = Aws::DynamoDB::Client.new
   dynamodb.update_item(
@@ -45,6 +45,6 @@ def process_new_order(order)
       ':processed_at' => Time.now.iso8601
     }
   )
-  
+
   puts "Order #{order['id']} marked as processed"
 end

@@ -52,7 +52,7 @@ provider "conveyor-belt" {
   aws_region             = var.aws_region
   default_lambda_timeout = 30
   default_lambda_memory  = 256
-  
+
   default_tags = {
     Application = var.app_name
     Environment = var.environment
@@ -63,7 +63,7 @@ provider "conveyor-belt" {
 # Cognito User Pool
 resource "aws_cognito_user_pool" "main" {
   name = "${var.app_name}-${var.environment}"
-  
+
   password_policy {
     minimum_length    = 8
     require_lowercase = true
@@ -71,14 +71,14 @@ resource "aws_cognito_user_pool" "main" {
     require_symbols   = false
     require_uppercase = true
   }
-  
+
   auto_verified_attributes = ["email"]
 }
 
 resource "aws_cognito_user_pool_client" "main" {
   name         = "${var.app_name}-${var.environment}-client"
   user_pool_id = aws_cognito_user_pool.main.id
-  
+
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH"
@@ -90,12 +90,12 @@ resource "conveyor_belt_lambda" "onboarding" {
   name       = "onboarding"
   app_name   = var.app_name
   source_dir = "${path.module}/lambda"
-  
+
   env_vars = {
     COGNITO_USER_POOL_ID = aws_cognito_user_pool.main.id
     COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.main.id
   }
-  
+
   tables = ["customers"]
 }
 
@@ -103,11 +103,11 @@ resource "conveyor_belt_lambda" "customer" {
   name       = "customer"
   app_name   = var.app_name
   source_dir = "${path.module}/lambda"
-  
+
   env_vars = {
     LOG_LEVEL = "info"
   }
-  
+
   tables = ["customers", "orders"]
 }
 
@@ -115,14 +115,14 @@ resource "conveyor_belt_lambda" "admin" {
   name       = "admin"
   app_name   = var.app_name
   source_dir = "${path.module}/lambda"
-  
+
   timeout = 60
   memory  = 512
-  
+
   env_vars = {
     ADMIN_MODE = "true"
   }
-  
+
   tables = ["customers", "orders", "inventory"]
 }
 
@@ -130,9 +130,9 @@ resource "conveyor_belt_lambda" "admin" {
 resource "conveyor_belt_gateway" "public" {
   name     = "public"
   app_name = var.app_name
-  
+
   frontend_urls = [var.frontend_url]
-  
+
   routes = [
     {
       name       = "health"
@@ -162,10 +162,10 @@ resource "conveyor_belt_gateway" "public" {
 resource "conveyor_belt_gateway" "private" {
   name     = "private"
   app_name = var.app_name
-  
+
   frontend_urls          = [var.frontend_url]
   cognito_user_pool_arns = [aws_cognito_user_pool.main.arn]
-  
+
   routes = [
     {
       name       = "get_profile"
@@ -195,10 +195,10 @@ resource "conveyor_belt_gateway" "private" {
 resource "conveyor_belt_gateway" "admin" {
   name     = "admin"
   app_name = var.app_name
-  
+
   frontend_urls          = [var.frontend_url]
   cognito_user_pool_arns = [aws_cognito_user_pool.main.arn]
-  
+
   routes = [
     {
       name       = "list_customers"

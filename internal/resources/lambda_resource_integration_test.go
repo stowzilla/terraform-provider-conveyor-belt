@@ -43,7 +43,7 @@ end
 		if err != nil {
 			t.Fatalf("Failed to create shared dir %s: %v", dir, err)
 		}
-		
+
 		// Add a test file in each shared directory
 		testFile := filepath.Join(tempDir, dir, "integration_test.rb")
 		err = os.WriteFile(testFile, []byte("# Integration test file"), 0644)
@@ -88,7 +88,7 @@ end
 
 		// Test environment variable building
 		envVars := resource.buildEnvVars(ctx, model, config)
-		
+
 		// Verify environment variables
 		expectedVars := map[string]string{
 			"APP_NAME":    "testapp",
@@ -156,7 +156,7 @@ end
 		} else {
 			t.Logf("Source hash calculation failed as expected: %v", err)
 		}
-		
+
 		// The important thing is that it doesn't crash
 		t.Logf("Error handling test completed - source hash: %s, error: %v", sourceHash, err)
 	})

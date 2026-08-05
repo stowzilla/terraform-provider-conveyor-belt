@@ -53,7 +53,6 @@ func NewPathDependencyGraph() *PathDependencyGraph {
 	}
 }
 
-
 // BuildPathDependencyGraph constructs a dependency graph from a list of routes.
 // It parses each route path into segments and builds a tree structure linking parents to children.
 // The gateway parameter is used for filtering routes if needed (currently unused but available for future use).
@@ -129,7 +128,6 @@ func parsePathSegments(path string) []string {
 	}
 	return strings.Split(path, "/")
 }
-
 
 // GetCreationOrder returns path segments in topological order where parents come before children.
 // Uses BFS from roots to ensure level-by-level ordering, which guarantees that all parent

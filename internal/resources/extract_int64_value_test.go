@@ -121,8 +121,8 @@ func TestGetTimeoutAndMemory_SharedConfigWithTerraformTypes(t *testing.T) {
 	lambdaObj, _ := types.ObjectValue(lambdaAttrTypes, lambdaAttrs)
 
 	lambdaConfig := map[string]interface{}{
-		"shared":              sharedObj,
-		"ai_analysis_worker":  lambdaObj,
+		"shared":             sharedObj,
+		"ai_analysis_worker": lambdaObj,
 	}
 
 	timeout, memory := pm.getTimeoutAndMemory("ai_analysis_worker", lambdaConfig)

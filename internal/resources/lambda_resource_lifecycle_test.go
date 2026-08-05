@@ -40,7 +40,7 @@ end
 		if err != nil {
 			t.Fatalf("Failed to create shared dir %s: %v", dir, err)
 		}
-		
+
 		// Add a test file in each shared directory
 		testFile := filepath.Join(tempDir, dir, "test.rb")
 		err = os.WriteFile(testFile, []byte("# Test file"), 0644)
@@ -98,7 +98,7 @@ end
 		}
 
 		ctx := context.Background()
-		
+
 		// Mock AWS account ID retrieval by setting environment variable
 		os.Setenv("AWS_ACCOUNT_ID", "123456789012")
 		defer os.Unsetenv("AWS_ACCOUNT_ID")
@@ -125,7 +125,7 @@ end
 	// Test environment variable building
 	t.Run("Environment Variables", func(t *testing.T) {
 		resource := &lambdaResource{}
-		
+
 		config := &DispatcherConfig{
 			AppName:     "testapp",
 			Environment: "test",
@@ -186,7 +186,7 @@ end
 	// Test routes building from tables
 	t.Run("Routes Building", func(t *testing.T) {
 		resource := &lambdaResource{}
-		
+
 		tables := []string{"users", "orders", "products"}
 		routes := resource.buildRoutesFromTables("test_lambda", tables)
 

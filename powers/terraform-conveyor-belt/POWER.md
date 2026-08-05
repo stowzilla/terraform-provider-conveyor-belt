@@ -102,17 +102,17 @@ resource "conveyor_belt" "main" {
   app_name          = "myapp"
   lambda_source_dir = "${path.module}/lambda"
   frontend_urls     = ["https://app.example.com"]
-  
+
   cognito_user_pool_arns = [module.cognito.user_pool_arn]
-  
+
   # Optional: unified API access via custom domain
   # custom_domain_name = "api.example.com"
-  
+
   lambda_config = {
     shared = {
       env_vars = { LOG_LEVEL = "info" }
     }
-    
+
     customer = {
       timeout     = 60
       memory_size = 512
@@ -120,7 +120,7 @@ resource "conveyor_belt" "main" {
         { name = "customers", access = "read_write" }
       ]
     }
-    
+
     # Standalone Lambda (no API route)
     background_worker = {
       sqs_triggers = [
@@ -128,10 +128,10 @@ resource "conveyor_belt" "main" {
       ]
     }
   }
-  
+
   read_only_tables  = ["config"]
   read_write_tables = ["audit_log"]
-  
+
   alarm_config = {
     enabled       = true
     sns_topic_arn = aws_sns_topic.alerts.arn
@@ -205,18 +205,18 @@ lambda/
 ```hcl
 lambda_config = {
   shared = { env_vars = { KEY = "value" } }  # Applied to all
-  
+
   lambda_name = {
     env_vars    = { KEY = "value" }
     timeout     = 30
     memory_size = 256
-    
+
     dynamodb_tables = [{ name = "table", access = "read_write" }]
     s3_buckets      = [{ name = "bucket", access = "read_only" }]
     ses_emails      = [{ identity = "noreply@example.com" }]
     sns_triggers    = [{ topic_arn = "arn:aws:sns:..." }]
     sqs_triggers    = [{ queue_arn = "arn:aws:sqs:...", batch_size = 10 }]
-    
+
     # VPC configuration (optional)
     vpc_config = {
       subnet_ids         = ["subnet-abc123", "subnet-def456"]
@@ -239,7 +239,7 @@ lambda_config = {
     sns_triggers = [
       { topic_arn = aws_sns_topic.orders.arn }
     ]
-    
+
     # SQS triggers - Lambda polls queue
     sqs_triggers = [
       { queue_arn = aws_sqs_queue.jobs.arn, batch_size = 10 }
@@ -260,25 +260,25 @@ Trigger changes are automatically detected and reconciled:
 alarm_config = {
   enabled            = true
   sns_topic_arn      = "arn:aws:sns:..."
-  
+
   # Error alarms
   error_enabled            = true
   error_threshold          = 1
   error_period             = 300        # seconds
   error_evaluation_periods = 1
-  
+
   # Duration alarms
   duration_enabled            = true
   duration_threshold          = 5000    # milliseconds
   duration_period             = 300
   duration_evaluation_periods = 1
-  
+
   # Throttle alarms
   throttle_enabled            = true
   throttle_threshold          = 1
   throttle_period             = 300
   throttle_evaluation_periods = 1
-  
+
   # Per-lambda overrides
   lambda_overrides = {
     payment = { error_threshold = 1, duration_threshold = 3000 }
@@ -302,7 +302,7 @@ This ensures browsers can properly handle both successful responses and error re
 When API Gateway returns errors before Lambda is invoked (e.g., Cognito authorizer failures), the provider automatically configures gateway responses with CORS headers for:
 
 - `UNAUTHORIZED` (401) - Cognito/IAM auth failures
-- `ACCESS_DENIED` (403) - Authorization policy denials  
+- `ACCESS_DENIED` (403) - Authorization policy denials
 - `DEFAULT_4XX` - All other 4xx errors
 - `DEFAULT_5XX` - All 5xx errors
 - `MISSING_AUTHENTICATION_TOKEN` (404) - Route not found
@@ -326,7 +326,7 @@ resource "conveyor_belt" "main" {
   app_name          = "myapp"
   lambda_source_dir = "${path.module}/lambda"
   frontend_urls     = ["https://app.example.com"]
-  
+
   # Enable friendly errors for dev/uat/staging
   friendly_errors = var.environment != "prod"
 }
@@ -386,7 +386,7 @@ resource "conveyor_belt_gateway" "api" {
   name          = "api"
   app_name      = "myapp"
   frontend_urls = ["https://app.example.com"]
-  
+
   routes = [
     {
       name       = "get_customer"
@@ -396,7 +396,7 @@ resource "conveyor_belt_gateway" "api" {
       auth       = "cognito"
     }
   ]
-  
+
   cognito_user_pool_arns = [aws_cognito_user_pool.main.arn]
 }
 ```

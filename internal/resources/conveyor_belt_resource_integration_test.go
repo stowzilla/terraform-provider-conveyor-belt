@@ -301,7 +301,6 @@ func TestRoutesToResourcesMapping_DuplicateLambdas(t *testing.T) {
 	}
 }
 
-
 // =============================================================================
 // Property 3: Configuration Merge Correctness
 // *For any* lambda with both route-derived config and `lambda_config` overrides,
@@ -620,7 +619,6 @@ func TestConfigurationMerge_FullPriorityChain(t *testing.T) {
 	}
 }
 
-
 // =============================================================================
 // Property 4: Gateway-Lambda Wiring
 // *For any* route in the parsed routes, the created API Gateway integration
@@ -698,27 +696,27 @@ func TestGatewayLambdaWiring_Property(t *testing.T) {
 // TestGatewayLambdaWiring_IntegrationURIConstruction tests that integration URIs are correctly constructed
 func TestGatewayLambdaWiring_IntegrationURIConstruction(t *testing.T) {
 	testCases := []struct {
-		name       string
-		region     string
-		lambdaArn  string
+		name        string
+		region      string
+		lambdaArn   string
 		expectedURI string
 	}{
 		{
-			name:       "standard lambda ARN",
-			region:     "us-east-1",
-			lambdaArn:  "arn:aws:lambda:us-east-1:123456789012:function:myapp-prod-customer",
+			name:        "standard lambda ARN",
+			region:      "us-east-1",
+			lambdaArn:   "arn:aws:lambda:us-east-1:123456789012:function:myapp-prod-customer",
 			expectedURI: "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:123456789012:function:myapp-prod-customer/invocations",
 		},
 		{
-			name:       "lambda ARN with alias",
-			region:     "us-west-2",
-			lambdaArn:  "arn:aws:lambda:us-west-2:123456789012:function:myapp-dev-orders:live",
+			name:        "lambda ARN with alias",
+			region:      "us-west-2",
+			lambdaArn:   "arn:aws:lambda:us-west-2:123456789012:function:myapp-dev-orders:live",
 			expectedURI: "arn:aws:apigateway:us-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:us-west-2:123456789012:function:myapp-dev-orders:live/invocations",
 		},
 		{
-			name:       "lambda ARN with version",
-			region:     "eu-west-1",
-			lambdaArn:  "arn:aws:lambda:eu-west-1:123456789012:function:myapp-staging-billing:42",
+			name:        "lambda ARN with version",
+			region:      "eu-west-1",
+			lambdaArn:   "arn:aws:lambda:eu-west-1:123456789012:function:myapp-staging-billing:42",
 			expectedURI: "arn:aws:apigateway:eu-west-1:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-1:123456789012:function:myapp-staging-billing:42/invocations",
 		},
 	}

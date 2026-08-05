@@ -142,7 +142,6 @@ func TestGatewayIntegrationCorrectness_LambdaArnExtrlambda(t *testing.T) {
 	}
 }
 
-
 // Feature: provider-framework-refactor, Property 5: Cognito Authorizer Creation
 // *For any* route with `auth: "cognito"`, the gateway SHALL create a Cognito authorizer
 // and attach it to that route's method. Routes with `auth: "none"` SHALL NOT have an authorizer.
@@ -194,7 +193,7 @@ func TestCognitoAuthorizerCreation_Property(t *testing.T) {
 		// Property 1: Routes with auth: "cognito" should require authorizer
 		for _, route := range routes {
 			requiresAuthorizer := route.Auth == "cognito"
-			
+
 			if requiresAuthorizer {
 				// Verify the route would get COGNITO_USER_POOLS authorization
 				expectedAuthType := "COGNITO_USER_POOLS"
@@ -241,9 +240,9 @@ func TestCognitoAuthorizerCreation_Property(t *testing.T) {
 // TestCognitoAuthorizerCreation_AuthTypeMapping tests the mapping of auth types to API Gateway authorization types
 func TestCognitoAuthorizerCreation_AuthTypeMapping(t *testing.T) {
 	testCases := []struct {
-		auth                 string
-		expectedAuthType     string
-		requiresAuthorizer   bool
+		auth               string
+		expectedAuthType   string
+		requiresAuthorizer bool
 	}{
 		{"cognito", "COGNITO_USER_POOLS", true},
 		{"none", "NONE", false},
@@ -323,7 +322,6 @@ func TestCognitoAuthorizerCreation_MixedRoutes(t *testing.T) {
 		t.Errorf("Expected 2 cognito routes, got %d", len(cognitoRoutes))
 	}
 }
-
 
 // TestRoutesHashDeterminism tests that the routes hash is deterministic
 func TestRoutesHashDeterminism(t *testing.T) {

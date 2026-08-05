@@ -19,11 +19,11 @@ func TestExtractMapValue_TypesDynamic(t *testing.T) {
 		"env_vars": types.ObjectValueMust(
 			map[string]attr.Type{
 				"CLOUDFRONT_KEY_PAIR_ID": basetypes.StringType{},
-				"IMAGES_BUCKET_NAME":    basetypes.StringType{},
+				"IMAGES_BUCKET_NAME":     basetypes.StringType{},
 			},
 			map[string]attr.Value{
 				"CLOUDFRONT_KEY_PAIR_ID": types.StringValue("KXYZ123"),
-				"IMAGES_BUCKET_NAME":    types.StringValue("my-images-bucket"),
+				"IMAGES_BUCKET_NAME":     types.StringValue("my-images-bucket"),
 			},
 		),
 	}
@@ -32,7 +32,7 @@ func TestExtractMapValue_TypesDynamic(t *testing.T) {
 		"env_vars": types.ObjectType{
 			AttrTypes: map[string]attr.Type{
 				"CLOUDFRONT_KEY_PAIR_ID": basetypes.StringType{},
-				"IMAGES_BUCKET_NAME":    basetypes.StringType{},
+				"IMAGES_BUCKET_NAME":     basetypes.StringType{},
 			},
 		},
 	}
@@ -146,11 +146,11 @@ func TestBuildEnvVars_WithDynamicWrappedConfig(t *testing.T) {
 	opsEnvVarsObj := types.ObjectValueMust(
 		map[string]attr.Type{
 			"CLOUDFRONT_KEY_PAIR_ID": basetypes.StringType{},
-			"IMAGES_BUCKET_NAME":    basetypes.StringType{},
+			"IMAGES_BUCKET_NAME":     basetypes.StringType{},
 		},
 		map[string]attr.Value{
 			"CLOUDFRONT_KEY_PAIR_ID": types.StringValue("KXYZ123"),
-			"IMAGES_BUCKET_NAME":    types.StringValue("my-images-bucket"),
+			"IMAGES_BUCKET_NAME":     types.StringValue("my-images-bucket"),
 		},
 	)
 	opsObj := types.ObjectValueMust(

@@ -427,8 +427,6 @@ func (im *IAMManager) ReconcileOrphanedRoles(ctx context.Context, knownRoles map
 	return orphanedCount, lastErr
 }
 
-
-
 // CreateDynamoDBPolicies creates IAM policies for DynamoDB access
 func (im *IAMManager) CreateDynamoDBPolicies(ctx context.Context, routes []utils.Route) error {
 	// Group routes by lambda to get tables per Lambda

@@ -464,8 +464,8 @@ func (m *BasePathMappingManager) SyncBasePathMappings(
 	}
 
 	utils.Info(ctx, "Successfully synced base path mappings", map[string]interface{}{
-		"domain_name":    domainName,
-		"mapping_count":  len(resultMappings),
+		"domain_name":   domainName,
+		"mapping_count": len(resultMappings),
 	})
 
 	return resultMappings, nil

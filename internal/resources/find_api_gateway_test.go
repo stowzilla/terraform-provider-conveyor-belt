@@ -34,8 +34,8 @@ func TestFindExistingApiGateway_UsesLimit500(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
@@ -76,8 +76,8 @@ func TestFindExistingApiGateway_FindsApiByName(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
@@ -117,8 +117,8 @@ func TestFindExistingApiGateway_ReturnsEmptyWhenNotFound(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
@@ -182,8 +182,8 @@ func TestFindExistingApiGateway_HandlesLargeNumberOfGateways(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
@@ -230,8 +230,8 @@ func TestUpdateSingleGateway_FindsGatewayBeyondDefault25(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
@@ -277,8 +277,8 @@ func TestDeleteSingleGateway_UsesLimit500(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
@@ -325,8 +325,8 @@ func TestReadSingleGateway_UsesLimit500(t *testing.T) {
 	defer server.Close()
 
 	client := apigateway.New(apigateway.Options{
-		Region:      "us-east-1",
-		Credentials: credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
+		Region:       "us-east-1",
+		Credentials:  credentials.NewStaticCredentialsProvider("fake", "fake", "fake"),
 		BaseEndpoint: aws.String(server.URL),
 	})
 
