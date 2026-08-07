@@ -548,18 +548,60 @@ func hashDirectoryContents(dirPath string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
-			name := info.Name()
-			// Skip OS metadata, editor temp files, and other non-source artifacts
-			if name == ".DS_Store" ||
-				strings.HasPrefix(name, ".") ||
-				strings.HasSuffix(name, ".swp") ||
-				strings.HasSuffix(name, ".swo") ||
-				strings.HasSuffix(name, "~") {
-				return nil
-			}
-			files = append(files, path)
+		if info.IsDir() {
+			return nil
 		}
+
+		// Handle symlinks: filepath.Walk uses Lstat, so symlinks to directories
+		// appear as non-directory entries. If we try to ReadFile them later, we get
+		// "is a directory" error. Resolve the symlink and walk into it if it's a dir.
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return nil // skip broken symlinks
+			}
+			resolvedInfo, err := os.Stat(resolved)
+			if err != nil {
+				return nil // skip inaccessible targets
+			}
+			if resolvedInfo.IsDir() {
+				// Walk the symlinked directory and collect its files
+				return filepath.Walk(resolved, func(subPath string, subInfo os.FileInfo, subErr error) error {
+					if subErr != nil {
+						return subErr
+					}
+					if subInfo.IsDir() {
+						return nil
+					}
+					name := subInfo.Name()
+					if name == ".DS_Store" ||
+						strings.HasPrefix(name, ".") ||
+						strings.HasSuffix(name, ".swp") ||
+						strings.HasSuffix(name, ".swo") ||
+						strings.HasSuffix(name, "~") {
+						return nil
+					}
+					// Use a path relative to the original dirPath for consistent hashing.
+					// Map the resolved subpath back through the symlink's location.
+					relFromResolved, _ := filepath.Rel(resolved, subPath)
+					originalPath := filepath.Join(path, relFromResolved)
+					files = append(files, originalPath)
+					return nil
+				})
+			}
+			// Symlink to a regular file — fall through to normal handling
+		}
+
+		name := info.Name()
+		// Skip OS metadata, editor temp files, and other non-source artifacts
+		if name == ".DS_Store" ||
+			strings.HasPrefix(name, ".") ||
+			strings.HasSuffix(name, ".swp") ||
+			strings.HasSuffix(name, ".swo") ||
+			strings.HasSuffix(name, "~") {
+			return nil
+		}
+		files = append(files, path)
 		return nil
 	})
 	if err != nil {
@@ -581,10 +623,11 @@ func hashDirectoryContents(dirPath string) (string, error) {
 		hasher.Write([]byte(relPath))
 		hasher.Write([]byte{0}) // separator
 
-		// Hash file contents
+		// Hash file contents — for symlinked directory entries, the path goes
+		// through the symlink which os.ReadFile resolves transparently.
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("read %s: %w", filePath, err)
 		}
 		hasher.Write(content)
 		hasher.Write([]byte{0}) // separator
