@@ -67,7 +67,6 @@ func (c *DispatcherConfig) ResolveEnvVarsForAction(lambda string, autoInjectedVa
 							utils.Info(ctx, "Adding lambda-specific env var", map[string]interface{}{
 								"lambda": lambda,
 								"key":    key,
-								"value":  strVal,
 							})
 							result[key] = strVal
 						} else {
@@ -92,10 +91,15 @@ func (c *DispatcherConfig) ResolveEnvVarsForAction(lambda string, autoInjectedVa
 		})
 	}
 
+	// Log resolved env var keys (not values, which may contain secrets)
+	envVarKeys := make([]string, 0, len(result))
+	for k := range result {
+		envVarKeys = append(envVarKeys, k)
+	}
 	utils.Info(ctx, "Final resolved env vars", map[string]interface{}{
 		"lambda":    lambda,
 		"var_count": len(result),
-		"vars":      result,
+		"keys":      envVarKeys,
 	})
 
 	return result
