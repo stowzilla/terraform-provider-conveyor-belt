@@ -147,11 +147,42 @@ provider "conveyor-belt" {
 }
 ```
 
-### 3. Create the Conveyor Resource
+### 3. Configure Lambda (`config/lambda/api.yml`)
+
+Lambda configuration lives in YAML files — one per Lambda function, named after the function. This keeps lambda config out of your Terraform files and supports per-environment overrides:
+
+```yaml
+# config/lambda/api.yml
+# Works like Rails' database.yml — define defaults, override per environment.
+
+default: &default
+  timeout: 30
+  memory_size: 256
+
+  env_vars:
+    COGNITO_USER_POOL_ID: ref(cognito_user_pool_id)   # resolved from lambda_env_refs
+    COGNITO_CLIENT_ID: ref(cognito_client_id)
+
+  dynamodb_tables:
+    customers:
+      permissions: [GetItem, PutItem, UpdateItem, DeleteItem, Query, Scan]
+      indexes:
+        EmailIndex: [Query]
+    orders: [GetItem, PutItem, Query]                  # shorthand for simple cases
+
+dev:
+  <<: *default
+
+prod:
+  <<: *default
+  memory_size: 512
+```
+
+### 4. Create the Conveyor Resource
 
 ```hcl
 resource "conveyor_belt" "main" {
-  source            = "${path.module}/routes.rb"
+  source            = "${path.module}/config/routes.rb"
   app_name          = "myapp"
   lambda_source_dir = "${path.module}/lambda"
 
@@ -160,7 +191,7 @@ resource "conveyor_belt" "main" {
     "https://admin.example.com"
   ]
 
-  cognito_user_pool_arns = [module.cognito.user_pool_arn]
+  cognito_user_pool_arns = [aws_cognito_user_pool.main.arn]
 
   # Custom domain for unified API access
   custom_domain_name = "api.example.com"
@@ -168,49 +199,22 @@ resource "conveyor_belt" "main" {
   # Friendly error messages for non-production
   friendly_errors = var.environment != "prod"
 
-  # Per-lambda configuration
-  lambda_config = {
-    shared = {
-      env_vars = { LOG_LEVEL = "info" }
-    }
+  # Per-lambda YAML config from config/lambda/*.yml
+  lambda_config_dir = "${path.module}/config/lambda"
 
-    customer = {
-      timeout     = 60
-      memory_size = 512
-      env_vars    = { CACHE_TTL = "300" }
-      dynamodb_tables = [
-        { name = "customers", access = "read_write" }
-      ]
-    }
-
-    # Standalone Lambda (no API route) — triggered by SQS
-    background_worker = {
-      timeout     = 300
-      memory_size = 1024
-      sqs_triggers = [
-        { queue_arn = aws_sqs_queue.jobs.arn, batch_size = 10 }
-      ]
-    }
+  # Dynamic values injected into YAML via ref() syntax
+  lambda_env_refs = {
+    cognito_user_pool_id = aws_cognito_user_pool.main.id
+    cognito_client_id    = aws_cognito_user_pool_client.web.id
   }
 
   # Shared IAM policies for all Lambdas
   shared_iam_policy_arns = [aws_iam_policy.secrets_access.arn]
 
-  # DynamoDB access for all Lambdas
-  read_only_tables  = ["config"]
-  read_write_tables = ["audit_log"]
-
   # CloudWatch alarms
   alarm_config = {
     enabled       = true
     sns_topic_arn = aws_sns_topic.alerts.arn
-
-    lambda_overrides = {
-      customer = {
-        error_threshold    = 5
-        duration_threshold = 10000
-      }
-    }
   }
 }
 
@@ -219,7 +223,7 @@ output "api_url" {
 }
 ```
 
-### 4. Apply
+### 5. Apply
 
 ```bash
 terraform init
@@ -275,17 +279,99 @@ The primary resource — orchestrates all infrastructure from a Ruby routes DSL 
 | `lambda_shared_dirs` | No | Shared directories (default: `models`, `lib`, `helpers`, `templates`) |
 | `read_only_tables` | No | DynamoDB tables with read access for all Lambdas |
 | `read_write_tables` | No | DynamoDB tables with read/write access for all Lambdas |
-| `lambda_config` | No | Per-lambda configuration overrides (see below) |
+| `lambda_config` | No | Per-lambda HCL configuration overrides (merged with YAML, HCL wins) |
 | `alarm_config` | No | CloudWatch alarm configuration (see below) |
 
-#### lambda_config
+#### YAML Lambda Configuration
+
+The preferred way to configure lambdas is via YAML files in `config/lambda/` — one file per Lambda function, named after it. Create `config/lambda/<name>.yml`:
+
+```yaml
+# config/lambda/api.yml
+# Works like Rails' database.yml — define defaults, override per environment.
+
+default: &default
+  timeout: 30
+  memory_size: 256
+
+  env_vars:
+    COGNITO_USER_POOL_ID: ref(cognito_user_pool_id)   # resolved from lambda_env_refs
+    COGNITO_CLIENT_ID: ref(cognito_client_id)
+
+  dynamodb_tables:
+    users: [GetItem, PutItem, UpdateItem, Query]       # shorthand permissions
+    sessions:
+      permissions: [Query, DeleteItem]
+      indexes:
+        UserIndex: [Query]
+
+  s3_buckets:
+    images: [PutObject, GetObject]
+
+  sns_triggers:
+    - topic_arn: ref(bounces_topic_arn)
+  sqs_triggers:
+    - queue_arn: ref(jobs_queue_arn)
+      batch_size: 10
+
+dev:
+  <<: *default
+
+prod:
+  <<: *default
+  memory_size: 512
+```
+
+Wire it up in Terraform:
+
+```hcl
+resource "conveyor_belt" "main" {
+  lambda_config_dir = "${path.module}/config/lambda"
+
+  # Dynamic values injected into YAML via ref() syntax
+  lambda_env_refs = {
+    cognito_user_pool_id = aws_cognito_user_pool.main.id
+    cognito_client_id    = aws_cognito_user_pool_client.web.id
+    bounces_topic_arn    = aws_sns_topic.bounces.arn
+    jobs_queue_arn       = aws_sqs_queue.jobs.arn
+  }
+}
+```
+
+Use `belt lambda-config -e dev` to preview the merged config for any environment, and `belt lambda-config -f terraform` to see the Terraform-ready output.
+
+#### Partial Configs (Shared YAML)
+
+Share configuration between a subset of lambdas using underscore-prefixed partials:
+
+```yaml
+# config/lambda/_worker_defaults.yml
+default:
+  timeout: 900
+  memory_size: 1024
+  ephemeral_storage: 2048
+```
+
+```yaml
+# config/lambda/background.yml
+includes: [_worker_defaults]
+default:
+  env_vars:
+    JOB_TYPE: batch
+```
+
+Priority: `shared.yml` < partials (in order) < lambda file.
+
+#### lambda_config (HCL override)
+
+For cases where lambda config needs Terraform expression interpolation (module outputs, computed ARNs), use the HCL `lambda_config` block. YAML and HCL merge — HCL wins on conflicts.
 
 A map of lambda names to configuration objects. The special key `shared` applies to all Lambdas.
 
 ```hcl
 lambda_config = {
   shared = {
-    env_vars = { KEY = "value" }
+    env_vars = { LOG_LEVEL = "info" }
   }
 
   my_lambda = {
@@ -324,79 +410,6 @@ lambda_config = {
     ]
   }
 }
-```
-
-#### YAML Lambda Configuration
-
-For complex projects, configure lambdas via YAML files (database.yml style). Create `config/lambda/<name>.yml`:
-
-```yaml
-# config/lambda/api.yml
-default:
-  timeout: 30
-  memory_size: 256
-  env_vars:
-    LOG_LEVEL: info
-
-prod:
-  timeout: 60
-  memory_size: 512
-
-# DynamoDB tables by name (ARN constructed by convention)
-dynamodb_tables:
-  users: [Query, GetItem, PutItem]
-  sessions:
-    permissions: [Query, DeleteItem]
-    indexes:
-      UserIndex: [Query]
-
-# S3 buckets by name
-s3_buckets:
-  images: [PutObject, GetObject]
-
-# Triggers with ref() for dynamic ARNs
-sns_triggers:
-  - topic_arn: ref(bounces_topic_arn)
-sqs_triggers:
-  - queue_arn: ref(jobs_queue_arn)
-    batch_size: 10
-```
-
-Reference Terraform values in YAML using `ref()` syntax:
-
-```hcl
-resource "conveyor_belt" "main" {
-  lambda_config_dir = "${path.module}/config/lambda"
-  lambda_env_refs = {
-    bounces_topic_arn = aws_sns_topic.bounces.arn
-    jobs_queue_arn    = aws_sqs_queue.jobs.arn
-  }
-}
-```
-
-#### Partial Configs (Shared YAML)
-
-Share configuration between a subset of lambdas using underscore-prefixed partials:
-
-```yaml
-# config/lambda/_worker_defaults.yml
-default:
-  timeout: 900
-  memory_size: 1024
-  ephemeral_storage: 2048
-```
-
-```yaml
-# config/lambda/background.yml
-includes: [_worker_defaults]
-default:
-  env_vars:
-    JOB_TYPE: batch
-```
-
-Priority: `shared.yml` < partials (in order) < lambda file.
-
-#### alarm_config
 
 ```hcl
 alarm_config = {
