@@ -8,7 +8,7 @@ A Terraform provider that manages AWS serverless infrastructure from a Ruby rout
 - [Quick Start](#quick-start)
 - [Provider Configuration](#provider-configuration)
 - [Resources](#resources)
-  - [conveyor-belt (Recommended)](#conveyor-belt)
+  - [conveyor_belt (Recommended)](#conveyor_belt)
   - [conveyor_belt_lambda](#conveyor_belt_lambda)
   - [conveyor_belt_gateway](#conveyor_belt_gateway)
 - [Custom Domain Support](#custom-domain-support)
@@ -22,6 +22,7 @@ A Terraform provider that manages AWS serverless infrastructure from a Ruby rout
 ### Prerequisites
 
 - **Ruby** — For parsing route definitions
+- **Belt gem** — `gem install belt` (provides the `belt routes` CLI)
 - **Docker** — For building Lambda packages
 - **AWS CLI** — Configured with credentials
 - **Terraform 1.0+**
@@ -35,7 +36,7 @@ terraform {
   required_providers {
     conveyor-belt = {
       source  = "stowzilla/conveyor-belt"
-      version = "~> 0.23"
+      version = "~> 0.0"
     }
   }
 }
@@ -51,29 +52,31 @@ terraform init -upgrade
 
 ## Quick Start
 
-### 1. Define Routes (`routes.tf.rb`)
+### 1. Define Routes (`routes.rb`)
 
-Routes are defined using a Ruby DSL. Each route specifies which API Gateway handles it (`namespace`) and which Lambda function processes it (`lambda`, defaults to the namespace name unless overridden with `scope`).
+Routes are defined using a Ruby DSL. The `gateway` keyword creates an API Gateway and a default Lambda function. Use `function` to route specific endpoints to a different Lambda.
 
 ```ruby
-namespace :customer, auth: :cognito do
-  resources :items, only: [:index], tables: [:inventory, :containers] do
-    get '/search', on: :collection
+Belt.application.routes.draw do
+  gateway :customer, auth: :cognito do
+    resources :items, only: [:index], tables: [:inventory, :containers] do
+      get '/search', on: :collection
+    end
   end
-end
 
-namespace :ops, auth: :cognito do
-  resources :containers
-  get "/health"
-end
+  gateway :ops, auth: :cognito do
+    resources :containers
+    get "/health"
+  end
 
-namespace :onboarding, auth: :none do
-  post '/signup'
-  post '/contact'
+  gateway :onboarding, auth: :none do
+    post '/signup'
+    post '/contact'
+  end
 end
 ```
 
-The DSL generates JSON routes consumed by the provider:
+The DSL generates JSON routes consumed by the provider (via `belt routes -f json`):
 
 ```json
 {
@@ -87,6 +90,33 @@ The DSL generates JSON routes consumed by the provider:
 }
 ```
 
+### Route DSL Keywords
+
+| Keyword | Purpose | Affects Lambda? |
+|---------|---------|-----------------|
+| `gateway` | Creates an API Gateway + default Lambda | Yes — sets the default Lambda for all routes inside |
+| `function` | Routes to a different Lambda | Yes — overrides the gateway's default |
+| `namespace` | Adds path prefix + controller module | No — code organization only |
+| `scope` | Flexible path/module/auth grouping | No — grouping and shared options only |
+
+**Example combining keywords:**
+
+```ruby
+Belt.application.routes.draw do
+  gateway :api, auth: :cognito do
+    resources :posts                    # → lambda: api, path: /posts
+
+    namespace :admin do
+      resources :users                  # → lambda: api, path: /admin/users
+    end
+
+    function :worker do
+      resources :jobs                   # → lambda: worker, path: /jobs
+    end
+  end
+end
+```
+
 ### 2. Configure the Provider
 
 ```hcl
@@ -98,7 +128,7 @@ terraform {
     }
     conveyor-belt = {
       source  = "stowzilla/conveyor-belt"
-      version = "~> 0.23"
+      version = "~> 0.0"
     }
   }
 }
@@ -119,7 +149,7 @@ provider "conveyor-belt" {
 
 ```hcl
 resource "conveyor_belt" "main" {
-  source            = "${path.module}/routes.tf.rb"
+  source            = "${path.module}/routes.rb"
   app_name          = "myapp"
   lambda_source_dir = "${path.module}/lambda"
 
@@ -201,7 +231,8 @@ terraform apply
 |-----------|----------|---------|-------------|
 | `environment` | Yes | — | Environment name (dev, staging, prod) |
 | `aws_region` | Yes | — | AWS region |
-| `ruby_script_path` | No | `../../scripts/list_routes.rb` | Path to routes parser script |
+| `ruby_version` | No | `"3.4"` | Ruby version for Lambda runtime and default Docker build image |
+| `docker_build_image` | No | — | Override the Docker image used to build Lambda dependencies |
 | `default_lambda_timeout` | No | 30 | Default Lambda timeout (seconds) |
 | `default_lambda_memory` | No | 128 | Default Lambda memory (MB) |
 | `default_tags` | No | `{}` | Tags applied to all resources |
@@ -209,13 +240,13 @@ terraform apply
 
 ## Resources
 
-### conveyor-belt
+### conveyor_belt
 
 The primary resource — orchestrates all infrastructure from a Ruby routes DSL file. This is the recommended way to use the provider.
 
 #### How It Works
 
-1. Parses `routes.tf.rb` via Ruby script to extract routes
+1. Parses `routes.rb` via `belt routes -f json` to extract routes
 2. Builds Lambda packages in Docker (shared gem bundle, built once)
 3. Creates one Lambda function per unique `lambda` value
 4. Creates one API Gateway per unique `gateway` value
@@ -227,14 +258,16 @@ The primary resource — orchestrates all infrastructure from a Ruby routes DSL 
 
 | Attribute | Required | Description |
 |-----------|----------|-------------|
-| `source` | Yes | Path to `routes.tf.rb` file |
+| `source` | Yes | Path to `routes.rb` (or `routes.tf.rb` for legacy projects) |
 | `app_name` | Yes | Application name for resource naming |
 | `lambda_source_dir` | Yes | Directory containing Lambda source files |
 | `frontend_urls` | Yes | Frontend URLs for CORS configuration |
 | `cognito_user_pool_arns` | No | Cognito User Pool ARNs for authentication |
 | `custom_domain_name` | No | Custom domain for unified API access (e.g., `api.example.com`) |
 | `friendly_errors` | No | Enable detailed error messages for routing errors (recommended for non-prod) |
-| `schema_source` | No | Path to `schema.tf.rb` for API Gateway model definitions and request validation |
+| `schema_source` | No | Path to contracts file (auto-detects `contracts.rb` → `contracts.tf.rb` → `schema.tf.rb`) |
+| `lambda_config_dir` | No | Directory for per-lambda YAML config files (database.yml style) |
+| `lambda_env_refs` | No | Map of reference names to Terraform-resolved values for YAML `ref()` syntax |
 | `shared_iam_policy_arns` | No | IAM policy ARNs attached to all Lambdas |
 | `lambda_layer_arns` | No | Lambda Layer ARNs for all functions |
 | `lambda_shared_dirs` | No | Shared directories (default: `models`, `lib`, `helpers`, `templates`) |
@@ -257,6 +290,7 @@ lambda_config = {
     env_vars    = { KEY = "value" }
     timeout     = 30
     memory_size = 256
+    runtime     = "ruby3.4"
 
     # DynamoDB access
     dynamodb_tables = [
@@ -281,9 +315,84 @@ lambda_config = {
     sqs_triggers = [
       { queue_arn = "arn:aws:sqs:...", batch_size = 10 }
     ]
+
+    # Per-lambda IAM policies
+    iam_policy_arns = [
+      "arn:aws:iam::123456789:policy/my-policy"
+    ]
   }
 }
 ```
+
+#### YAML Lambda Configuration
+
+For complex projects, configure lambdas via YAML files (database.yml style). Create `config/lambda/<name>.yml`:
+
+```yaml
+# config/lambda/api.yml
+default:
+  timeout: 30
+  memory_size: 256
+  env_vars:
+    LOG_LEVEL: info
+
+prod:
+  timeout: 60
+  memory_size: 512
+
+# DynamoDB tables by name (ARN constructed by convention)
+dynamodb_tables:
+  users: [Query, GetItem, PutItem]
+  sessions:
+    permissions: [Query, DeleteItem]
+    indexes:
+      UserIndex: [Query]
+
+# S3 buckets by name
+s3_buckets:
+  images: [PutObject, GetObject]
+
+# Triggers with ref() for dynamic ARNs
+sns_triggers:
+  - topic_arn: ref(bounces_topic_arn)
+sqs_triggers:
+  - queue_arn: ref(jobs_queue_arn)
+    batch_size: 10
+```
+
+Reference Terraform values in YAML using `ref()` syntax:
+
+```hcl
+resource "conveyor_belt" "main" {
+  lambda_config_dir = "${path.module}/config/lambda"
+  lambda_env_refs = {
+    bounces_topic_arn = aws_sns_topic.bounces.arn
+    jobs_queue_arn    = aws_sqs_queue.jobs.arn
+  }
+}
+```
+
+#### Partial Configs (Shared YAML)
+
+Share configuration between a subset of lambdas using underscore-prefixed partials:
+
+```yaml
+# config/lambda/_worker_defaults.yml
+default:
+  timeout: 900
+  memory_size: 1024
+  ephemeral_storage: 2048
+```
+
+```yaml
+# config/lambda/background.yml
+includes: [_worker_defaults]
+default:
+  env_vars:
+    JOB_TYPE: batch
+```
+
+Priority: `shared.yml` < partials (in order) < lambda file.
 
 #### alarm_config
 
@@ -334,6 +443,16 @@ When you modify source files or configuration:
 6. IAM reconciliation runs in parallel across all Lambda roles
 7. If one Lambda update fails, others continue — all failures are reported
 
+#### Path Gem Support
+
+When your `Gemfile.lock` has `PATH` sources (local gems in development), the provider automatically:
+
+1. Runs `gem build` for each path gem into the Docker context
+2. Rewrites the build Gemfile to use version pins
+3. Includes the built gems in the Lambda package
+
+This means you can develop with `path:` gems locally and deploy without changing your Gemfile.
+
 #### Standalone Lambdas
 
 Define Lambdas in `lambda_config` that don't have API routes — useful for event-driven workers:
@@ -374,7 +493,7 @@ When `friendly_errors = true`, API Gateway returns detailed error responses for 
   "path": "/api/customers",
   "method": "POST",
   "environment": "uat",
-  "hint": "Run ./scripts/list_routes.rb to see all available routes"
+  "hint": "Run 'belt routes' to see all available routes"
 }
 ```
 
@@ -385,6 +504,7 @@ Recommended for dev/uat/staging. Disable in production for security.
 The provider reconciles IAM state on every apply:
 
 - Shared policies (`shared_iam_policy_arns`) are attached/detached across all Lambda roles
+- Per-lambda policies (`iam_policy_arns` in lambda_config) are attached to individual roles
 - Orphaned IAM roles from previous provider versions are discovered and cleaned up
 - Stale policies are detached by querying AWS directly (not relying on Terraform state)
 
@@ -556,7 +676,7 @@ Parses route definitions from a Ruby DSL file without creating any resources.
 
 ```hcl
 data "conveyor_belt_routes" "main" {
-  source = "${path.module}/../routes.tf.rb"
+  source = "${path.module}/../routes.rb"
 }
 
 output "routes" {
@@ -618,7 +738,7 @@ Ensure your `required_providers` block has the correct source and run `terraform
 ```hcl
 conveyor-belt = {
   source  = "stowzilla/conveyor-belt"
-  version = "~> 0.23"
+  version = "~> 0.0"
 }
 ```
 
