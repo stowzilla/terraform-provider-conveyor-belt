@@ -258,14 +258,14 @@ The primary resource — orchestrates all infrastructure from a Ruby routes DSL 
 
 | Attribute | Required | Description |
 |-----------|----------|-------------|
-| `source` | Yes | Path to `routes.rb` (or `routes.tf.rb` for legacy projects) |
+| `source` | Yes | Path to `routes.rb` |
 | `app_name` | Yes | Application name for resource naming |
 | `lambda_source_dir` | Yes | Directory containing Lambda source files |
 | `frontend_urls` | Yes | Frontend URLs for CORS configuration |
 | `cognito_user_pool_arns` | No | Cognito User Pool ARNs for authentication |
 | `custom_domain_name` | No | Custom domain for unified API access (e.g., `api.example.com`) |
 | `friendly_errors` | No | Enable detailed error messages for routing errors (recommended for non-prod) |
-| `schema_source` | No | Path to contracts file (auto-detects `contracts.rb` → `contracts.tf.rb` → `schema.tf.rb`) |
+| `schema_source` | No | Path to contracts file (auto-detects `contracts.rb`) |
 | `lambda_config_dir` | No | Directory for per-lambda YAML config files (database.yml style) |
 | `lambda_env_refs` | No | Map of reference names to Terraform-resolved values for YAML `ref()` syntax |
 | `shared_iam_policy_arns` | No | IAM policy ARNs attached to all Lambdas |
