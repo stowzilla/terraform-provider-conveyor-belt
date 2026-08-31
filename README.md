@@ -2,6 +2,8 @@
 
 A Terraform provider that manages AWS serverless infrastructure from a Ruby routes DSL file. Define your API routes in Ruby, and Conveyor creates Lambda functions, API Gateways, IAM roles, CloudWatch alarms, and custom domain mappings — all with parallel builds and incremental updates.
 
+> **Requires the [Belt gem](https://github.com/stowzilla/belt).** Belt provides the Ruby DSL for defining routes (`routes.rb`) and contracts (`contracts.rb`), plus the `belt routes` and `belt contracts` CLI commands the provider depends on to parse them. You can't use this provider without it.
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -22,7 +24,7 @@ A Terraform provider that manages AWS serverless infrastructure from a Ruby rout
 ### Prerequisites
 
 - **Ruby** — For parsing route definitions
-- **Belt gem** — `gem install belt` (provides the `belt routes` CLI)
+- **[Belt gem](https://github.com/stowzilla/belt)** — `gem install belt` (provides the `belt routes` CLI)
 - **Docker** — For building Lambda packages
 - **AWS CLI** — Configured with credentials
 - **Terraform 1.0+**
