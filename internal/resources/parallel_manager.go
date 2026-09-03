@@ -292,9 +292,11 @@ func (pm *ParallelManager) createLambdaFunction(
 		}
 	}
 
-	// Retry logic for IAM role propagation
+	// Retry logic for IAM role propagation.
+	// New IAM execution roles are eventually consistent and can take 30-60s+ to
+	// become assumable by Lambda; use capped-exponential backoff (~2 min budget).
 	var createErr error
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := 0; attempt < lambdaCreateMaxAttempts; attempt++ {
 		output, err := pm.clients.Lambda.CreateFunction(ctx, createInput)
 		if err == nil {
 			return *output.FunctionArn, nil
@@ -313,27 +315,20 @@ func (pm *ParallelManager) createLambdaFunction(
 			return "", fmt.Errorf("function exists but failed to get ARN: %w", getErr)
 		}
 
-		// Check if IAM role propagation error (includes KMS grant failures)
-		if strings.Contains(err.Error(), "cannot be assumed by Lambda") ||
-			strings.Contains(err.Error(), "KMS key is invalid for CreateGrant") ||
-			strings.Contains(err.Error(), "ARN does not refer to a valid principal") {
-			utils.Info(ctx, "IAM role not yet propagated, retrying...", map[string]interface{}{
-				"attempt":      attempt + 1,
-				"error_detail": err.Error(),
-			})
-			time.Sleep(time.Duration(attempt+1) * time.Second) // Exponential backoff
+		// IAM role propagation error (includes KMS grant / principal ARN failures)
+		if isRoleNotYetPropagatedErr(err) {
+			waitForRolePropagation(ctx, lambdaName, attempt, err)
 			continue
 		}
 
 		// Signature expired — large zip upload exceeded the 5-minute window
-		if strings.Contains(err.Error(), "InvalidSignatureException") ||
-			strings.Contains(err.Error(), "Signature expired") {
+		if isSignatureExpiredErr(err) {
 			utils.Warn(ctx, "Signature expired during code upload, retrying", map[string]interface{}{
 				"lambda":   lambdaName,
 				"attempt":  attempt + 1,
 				"zip_size": len(zipData),
 			})
-			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+			time.Sleep(lambdaCreateBackoff(attempt))
 			continue
 		}
 
