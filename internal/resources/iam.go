@@ -427,8 +427,6 @@ func (im *IAMManager) ReconcileOrphanedRoles(ctx context.Context, knownRoles map
 	return orphanedCount, lastErr
 }
 
-
-
 // CreateDynamoDBPolicies creates IAM policies for DynamoDB access
 func (im *IAMManager) CreateDynamoDBPolicies(ctx context.Context, routes []utils.Route) error {
 	// Group routes by lambda to get tables per Lambda
@@ -816,6 +814,71 @@ func (im *IAMManager) UpdateCognitoPolicy(ctx context.Context, lambda string, ro
 	return im.CreateCognitoPoliciesForAction(ctx, lambda, routes)
 }
 
+// dynamoReadWriteActions is the standard action set granted for tables a lambda both
+// reads and writes (route-declared tables and read_write_tables). BatchGetItem and
+// BatchWriteItem are included because ActiveItem uses them for multi-key finds and
+// has_many :through / batch loads — omitting them 500s those paths with AccessDenied at
+// runtime even though single-item ops work.
+var dynamoReadWriteActions = []string{
+	"dynamodb:GetItem",
+	"dynamodb:BatchGetItem",
+	"dynamodb:PutItem",
+	"dynamodb:UpdateItem",
+	"dynamodb:DeleteItem",
+	"dynamodb:BatchWriteItem",
+	"dynamodb:Query",
+	"dynamodb:Scan",
+}
+
+// dynamoReadOnlyActions is the standard action set granted for read_only_tables.
+// BatchGetItem is included so multi-key reads (e.g. has_many :through) work.
+var dynamoReadOnlyActions = []string{
+	"dynamodb:GetItem",
+	"dynamodb:BatchGetItem",
+	"dynamodb:Query",
+	"dynamodb:Scan",
+}
+
+// buildDynamoDBPolicyStatements assembles the IAM policy statements for a lambda's
+// DynamoDB access: one read-write statement, one read-only statement, and any custom
+// permission statements from lambda_config.dynamodb_tables. Pure function so the action
+// sets can be asserted in a unit test without an IAM client.
+func buildDynamoDBPolicyStatements(readWriteArns, readOnlyArns []string,
+	customPermissionArns map[string][]string) []map[string]interface{} {
+	statements := []map[string]interface{}{}
+
+	if len(readWriteArns) > 0 {
+		statements = append(statements, map[string]interface{}{
+			"Effect":   "Allow",
+			"Action":   dynamoReadWriteActions,
+			"Resource": readWriteArns,
+		})
+	}
+
+	if len(readOnlyArns) > 0 {
+		statements = append(statements, map[string]interface{}{
+			"Effect":   "Allow",
+			"Action":   dynamoReadOnlyActions,
+			"Resource": readOnlyArns,
+		})
+	}
+
+	// Add custom permission statements from lambda_config.dynamodb_tables
+	for permissionsHash, arns := range customPermissionArns {
+		if len(arns) > 0 {
+			// Parse permissions from hash (format: "perm1,perm2,perm3")
+			permissions := strings.Split(permissionsHash, ",")
+			statements = append(statements, map[string]interface{}{
+				"Effect":   "Allow",
+				"Action":   permissions,
+				"Resource": arns,
+			})
+		}
+	}
+
+	return statements
+}
+
 // CreateDynamoDBPoliciesForAction creates DynamoDB policy for a specific lambda
 // Accepts optional actualRoleName to use instead of constructing from lambda name
 func (im *IAMManager) CreateDynamoDBPoliciesForAction(ctx context.Context, lambda string, routes []utils.Route, actualRoleName ...string) error {
@@ -919,47 +982,7 @@ func (im *IAMManager) CreateDynamoDBPoliciesForAction(ctx context.Context, lambd
 	utils.Info(ctx, fmt.Sprintf("Attaching DynamoDB policy to %s (%d tables)", roleName, totalTables))
 
 	// Create policy document with separate statements for read-only, read-write, and custom permissions
-	statements := []map[string]interface{}{}
-
-	if len(readWriteArns) > 0 {
-		statements = append(statements, map[string]interface{}{
-			"Effect": "Allow",
-			"Action": []string{
-				"dynamodb:GetItem",
-				"dynamodb:PutItem",
-				"dynamodb:UpdateItem",
-				"dynamodb:DeleteItem",
-				"dynamodb:Query",
-				"dynamodb:Scan",
-			},
-			"Resource": readWriteArns,
-		})
-	}
-
-	if len(readOnlyArns) > 0 {
-		statements = append(statements, map[string]interface{}{
-			"Effect": "Allow",
-			"Action": []string{
-				"dynamodb:GetItem",
-				"dynamodb:Query",
-				"dynamodb:Scan",
-			},
-			"Resource": readOnlyArns,
-		})
-	}
-
-	// Add custom permission statements from lambda_config.dynamodb_tables
-	for permissionsHash, arns := range customPermissionArns {
-		if len(arns) > 0 {
-			// Parse permissions from hash (format: "lambda1,lambda2,lambda3")
-			permissions := strings.Split(permissionsHash, ",")
-			statements = append(statements, map[string]interface{}{
-				"Effect":   "Allow",
-				"Action":   permissions,
-				"Resource": arns,
-			})
-		}
-	}
+	statements := buildDynamoDBPolicyStatements(readWriteArns, readOnlyArns, customPermissionArns)
 
 	if len(statements) == 0 {
 		return nil // No tables to grant access to
