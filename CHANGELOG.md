@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.14] - 2026-09-10
+
+### Fixed
+
+- **Lambda DynamoDB policies now grant `BatchGetItem` and `BatchWriteItem`** — The generated inline policy granted only single-item operations (`GetItem`/`PutItem`/`UpdateItem`/`DeleteItem`) plus `Query`/`Scan`. ActiveItem loads multi-key finds and `has_many :through` associations with `BatchGetItem`, and batches writes with `BatchWriteItem`, so those paths failed at runtime with `AccessDeniedError: ... is not allowed to BatchGetItem on <table>` even though single-item access worked. `BatchGetItem` is now in both the read-write and read-only action sets; `BatchWriteItem` is in the read-write set.
+
 ## [0.0.13] - 2026-08-04
 
 ### Fixed
