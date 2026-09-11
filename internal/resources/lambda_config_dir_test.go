@@ -958,3 +958,19 @@ dev:
 		t.Errorf("expected static ARN, got %v", arns[1])
 	}
 }
+
+func TestConvertDynamoDBTables_DasherizesTableNameInArn(t *testing.T) {
+	tables := map[string]interface{}{
+		"turn_events": []interface{}{"read", "write"},
+	}
+	out := convertDynamoDBTables(tables, "fantasy-draft", "production", "us-east-1", "111122223333")
+	if len(out) != 1 {
+		t.Fatalf("expected 1 table entry, got %d", len(out))
+	}
+	entry := out[0].(map[string]interface{})
+	arn := entry["table_arn"].(string)
+	want := "arn:aws:dynamodb:us-east-1:111122223333:table/fantasy-draft-production-turn-events"
+	if arn != want {
+		t.Errorf("table ARN must dasherize underscores.\n want: %s\n got:  %s", want, arn)
+	}
+}

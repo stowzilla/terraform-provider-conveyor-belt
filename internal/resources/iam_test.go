@@ -297,3 +297,32 @@ func TestLambdaPermissionsBoundary_UnsetWhenEmpty(t *testing.T) {
 		t.Errorf("expected no PermissionsBoundary when unset, got %q", *in.PermissionsBoundary)
 	}
 }
+
+// --- expandDynamoDBActions (read/write shorthand expansion) ---
+
+func TestExpandDynamoDBActions_ReadWriteShorthand(t *testing.T) {
+	got := expandDynamoDBActions([]string{"read", "write"})
+	// Must contain concrete actions, never the invalid "dynamodb:read"/"dynamodb:write".
+	joined := strings.Join(got, ",")
+	for _, want := range []string{"dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected %s in expanded actions, got %v", want, got)
+		}
+	}
+	for _, bad := range []string{"dynamodb:read", "dynamodb:write"} {
+		if strings.Contains(joined, bad) {
+			t.Errorf("expanded actions must not contain the invalid action %s, got %v", bad, got)
+		}
+	}
+}
+
+func TestExpandDynamoDBActions_ExplicitAndBarePassThrough(t *testing.T) {
+	got := expandDynamoDBActions([]string{"dynamodb:BatchGetItem", "ConditionCheckItem"})
+	joined := strings.Join(got, ",")
+	if !strings.Contains(joined, "dynamodb:BatchGetItem") {
+		t.Errorf("explicit qualified action should pass through, got %v", got)
+	}
+	if !strings.Contains(joined, "dynamodb:ConditionCheckItem") {
+		t.Errorf("bare action should be prefixed with dynamodb:, got %v", got)
+	}
+}

@@ -963,8 +963,11 @@ func (im *IAMManager) CreateDynamoDBPoliciesForAction(ctx context.Context, lambd
 	// Add custom permission statements from lambda_config.dynamodb_tables
 	for permissionsHash, arns := range customPermissionArns {
 		if len(arns) > 0 {
-			// Parse permissions from hash (format: "lambda1,lambda2,lambda3")
-			permissions := strings.Split(permissionsHash, ",")
+			// Parse permissions from hash (format: "read,write" or explicit actions) and expand
+			// the read/write shorthand into concrete DynamoDB actions. Config authors write
+			// `dynamodb_tables: { conversations: [read, write] }`; without expansion those become
+			// the non-existent actions "dynamodb:read"/"dynamodb:write" and every call is denied.
+			permissions := expandDynamoDBActions(strings.Split(permissionsHash, ","))
 			statements = append(statements, map[string]interface{}{
 				"Effect":   "Allow",
 				"Action":   permissions,
@@ -1555,6 +1558,54 @@ func (im *IAMManager) DetachPolicyFromRole(ctx context.Context, roleName, policy
 // DeleteSecretsManagerPolicy deletes the Secrets Manager policy for an lambda
 func (im *IAMManager) DeleteSecretsManagerPolicy(ctx context.Context, lambda string) error {
 	return im.deleteInlinePolicy(ctx, lambda, "secretsmanager")
+}
+
+
+// expandDynamoDBActions turns the read/write shorthand used in lambda_config.dynamodb_tables
+// permissions into concrete DynamoDB IAM actions. A token may be:
+//   - "read"  -> GetItem, BatchGetItem, Query, Scan, DescribeTable
+//   - "write" -> PutItem, UpdateItem, DeleteItem, BatchWriteItem
+//   - an already-qualified action ("dynamodb:Query" or "Query") -> passed through, prefixed if bare
+// The result is de-duplicated and stable. Without this, "[read, write]" becomes the invalid
+// actions "dynamodb:read"/"dynamodb:write" and every table call is AccessDenied.
+func expandDynamoDBActions(tokens []string) []string {
+	readActions := []string{"dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:DescribeTable"}
+	writeActions := []string{"dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:BatchWriteItem"}
+
+	seen := make(map[string]bool)
+	var out []string
+	add := func(a string) {
+		if !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+
+	for _, raw := range tokens {
+		t := strings.TrimSpace(raw)
+		if t == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimPrefix(t, "dynamodb:")) {
+		case "read":
+			for _, a := range readActions {
+				add(a)
+			}
+		case "write":
+			for _, a := range writeActions {
+				add(a)
+			}
+		default:
+			// An explicit action. Ensure it carries the dynamodb: prefix.
+			if strings.Contains(t, ":") {
+				add(t)
+			} else {
+				add("dynamodb:" + t)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // convertToIAMTags converts a map of tags to IAM tag format

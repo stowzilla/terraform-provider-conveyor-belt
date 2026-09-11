@@ -392,9 +392,14 @@ func convertDynamoDBTables(tablesMap map[string]interface{}, appName, environmen
 	for _, tableName := range tableNames {
 		tableConfigRaw := tablesMap[tableName]
 
-		// Build the table ARN from convention
+		// Build the table ARN from convention. The physical table name dasherizes underscores
+		// (belt setup tables and ActiveItem name the table `turn-events` from a `turn_events`
+		// model), so the ARN must dasherize too — otherwise the IAM grant targets a non-existent
+		// `turn_events` table and every call is AccessDenied. Matches the route-derived and
+		// s3_buckets paths, which already normalize `_` -> `-`.
+		normalizedTableName := strings.ReplaceAll(tableName, "_", "-")
 		tableArn := fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s-%s-%s",
-			awsRegion, awsAccountId, appName, environment, tableName)
+			awsRegion, awsAccountId, appName, environment, normalizedTableName)
 
 		// Shorthand form: table_name: [Permission1, Permission2]
 		// Value is a list — treat as permissions only.
@@ -747,16 +752,12 @@ func normalizePermissions(permsRaw interface{}) []string {
 		return nil
 	}
 
-	var result []string
-	for _, perm := range rawPerms {
-		// Add "dynamodb:" prefix if not already present
-		if !strings.Contains(perm, ":") {
-			perm = "dynamodb:" + perm
-		}
-		result = append(result, perm)
-	}
-	sort.Strings(result)
-	return result
+	// Expand the read/write shorthand into concrete DynamoDB actions and prefix bare actions.
+	// Historically this only prefixed "dynamodb:" onto each token, which turned the common
+	// shorthand [read, write] into the INVALID actions dynamodb:read / dynamodb:write — every
+	// call against the table was then AccessDenied. expandDynamoDBActions maps read/write to real
+	// actions and de-duplicates.
+	return expandDynamoDBActions(rawPerms)
 }
 
 // toInterfaceSlice converts a []string to []interface{} for consistent map storage.
