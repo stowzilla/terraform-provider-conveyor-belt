@@ -29,6 +29,30 @@ const (
 	lambdaCreateBackoffFactor = 2
 )
 
+// freshRolePropagationDelay is a short, one-time pre-flight pause applied right
+// after a brand-new Lambda execution role is created, before the first
+// CreateFunction call. It lets the common cold-start propagation happen once, up
+// front, instead of surfacing as several failed CreateFunction attempts and
+// scary InvalidParameterValueException log lines.
+//
+// It is intentionally modest: the capped-exponential CreateFunction retry
+// (see lambdaCreateBackoff) remains the real safety net for the rare case where
+// propagation takes longer than this. This delay is ONLY applied when we
+// actually created a new role — never on the EntityAlreadyExists/GetRole path,
+// where the role is already propagated and any wait would be pure latency.
+const freshRolePropagationDelay = 8 * time.Second
+
+// waitForFreshRolePropagation pauses once for freshRolePropagationDelay after a
+// newly created role, before the first CreateFunction attempt. Callers must only
+// invoke this on the create path, not the already-exists path.
+func waitForFreshRolePropagation(ctx context.Context, roleName string) {
+	utils.Info(ctx, "Waiting for fresh IAM role to propagate before Lambda creation", map[string]interface{}{
+		"role_name": roleName,
+		"delay":     freshRolePropagationDelay.String(),
+	})
+	time.Sleep(freshRolePropagationDelay)
+}
+
 // isRoleNotYetPropagatedErr reports whether a CreateFunction error is a transient
 // IAM propagation error that should be retried (role not yet assumable by Lambda,
 // KMS grant not yet valid, or principal ARN not yet resolvable).

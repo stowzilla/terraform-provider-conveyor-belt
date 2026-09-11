@@ -71,6 +71,30 @@ func TestIsRoleNotYetPropagatedErr(t *testing.T) {
 	}
 }
 
+func TestFreshRolePropagationDelayIsSaneAndSmall(t *testing.T) {
+	// The pre-flight pause must be positive so it actually waits for propagation.
+	if freshRolePropagationDelay <= 0 {
+		t.Fatalf("freshRolePropagationDelay = %s, want > 0", freshRolePropagationDelay)
+	}
+
+	// It is a one-time nicety, not the primary safety net. It should stay well
+	// below the full capped-exponential CreateFunction retry budget so the retry
+	// loop remains the dominant mechanism for slow propagation.
+	var retryBudget time.Duration
+	for attempt := 0; attempt < lambdaCreateMaxAttempts; attempt++ {
+		retryBudget += lambdaCreateBackoff(attempt)
+	}
+	if freshRolePropagationDelay >= retryBudget {
+		t.Errorf("freshRolePropagationDelay = %s, want << retry budget %s", freshRolePropagationDelay, retryBudget)
+	}
+
+	// Guard against someone bumping it into "adds noticeable latency to every
+	// apply that creates a role" territory.
+	if freshRolePropagationDelay > 15*time.Second {
+		t.Errorf("freshRolePropagationDelay = %s is too large; keep the pre-flight pause modest", freshRolePropagationDelay)
+	}
+}
+
 func TestIsSignatureExpiredErr(t *testing.T) {
 	if !isSignatureExpiredErr(fmt.Errorf("InvalidSignatureException: Signature expired")) {
 		t.Error("expected signature-expired match")
