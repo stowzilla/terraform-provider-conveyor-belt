@@ -5,6 +5,10 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Added
+- **`lambda_permissions_boundary` provider/resource option** — Attach an IAM permissions boundary ARN to every Lambda execution role (and the API Gateway CloudWatch role) the provider creates. Required in accounts whose SCP or IAM policy only permits `iam:CreateRole` when a permissions boundary is set — e.g. a ToolBelt tenant account, where the deploy role may create roles ONLY when the `ToolBeltDeployBoundary` is attached (the anti-privilege-escalation guard). Without it, `terraform apply` fails with `AccessDenied` on `iam:CreateRole` in such accounts. Optional; empty/unset preserves current behavior (no boundary).
+
 ## [0.0.13] - 2026-08-04
 
 ### Fixed

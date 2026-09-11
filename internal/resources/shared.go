@@ -52,6 +52,7 @@ type DispatcherConfig struct {
 	FriendlyErrors       bool   // Enable friendly error messages for missing routes
 	SchemaSource         string // Path to contracts file (contracts.rb / schema.tf.rb) for API Gateway model definitions
 	SuppressTableEnvVars bool   // When true, do not generate *_TABLE_NAME and TABLES env vars
+	LambdaPermissionsBoundary string // IAM permissions boundary ARN attached to every Lambda execution role the provider creates (empty = none)
 	// Provider-level defaults for Lambda configuration
 	DefaultLambdaTimeout   int64
 	DefaultLambdaMemory    int64

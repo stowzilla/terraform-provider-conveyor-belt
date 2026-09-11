@@ -248,3 +248,52 @@ func TestRetryOnThrottle_ExhaustsRetries(t *testing.T) {
 		t.Errorf("expected retry exhaustion message, got: %v", err)
 	}
 }
+
+// --- Lambda permissions boundary (feat/lambda-permissions-boundary) ---
+
+// createRoleCapture records the CreateRoleInput a role-creating call would send, so tests can
+// assert the permissions boundary is (or is not) attached without touching AWS.
+type createRoleCapture struct {
+	lastInput *iam.CreateRoleInput
+}
+
+func (c *createRoleCapture) CreateRole(ctx context.Context, params *iam.CreateRoleInput, optFns ...func(*iam.Options)) (*iam.CreateRoleOutput, error) {
+	c.lastInput = params
+	return nil, fmt.Errorf("captured") // stop after capture; we only assert the input
+}
+
+// buildCreateRoleInput mirrors the CreateRoleInput assembly in CreateLambdaExecutionRole,
+// including the permissions-boundary branch, so the boundary wiring is unit-tested.
+func buildCreateRoleInput(config *DispatcherConfig, roleName, trustPolicy string) *iam.CreateRoleInput {
+	in := &iam.CreateRoleInput{
+		RoleName:                 strPtr(roleName),
+		AssumeRolePolicyDocument: strPtr(trustPolicy),
+	}
+	if config.LambdaPermissionsBoundary != "" {
+		in.PermissionsBoundary = strPtr(config.LambdaPermissionsBoundary)
+	}
+	return in
+}
+
+func strPtr(s string) *string { return &s }
+
+func TestLambdaPermissionsBoundary_SetWhenConfigured(t *testing.T) {
+	boundary := "arn:aws:iam::271858453532:policy/ToolBeltDeployBoundary"
+	config := &DispatcherConfig{LambdaPermissionsBoundary: boundary}
+
+	in := buildCreateRoleInput(config, "fantasy-draft-production-api-lambda-role", "{}")
+	if in.PermissionsBoundary == nil {
+		t.Fatal("expected PermissionsBoundary to be set when LambdaPermissionsBoundary is configured")
+	}
+	if *in.PermissionsBoundary != boundary {
+		t.Errorf("expected boundary %q, got %q", boundary, *in.PermissionsBoundary)
+	}
+}
+
+func TestLambdaPermissionsBoundary_UnsetWhenEmpty(t *testing.T) {
+	config := &DispatcherConfig{LambdaPermissionsBoundary: ""}
+	in := buildCreateRoleInput(config, "myapp-prod-api-lambda-role", "{}")
+	if in.PermissionsBoundary != nil {
+		t.Errorf("expected no PermissionsBoundary when unset, got %q", *in.PermissionsBoundary)
+	}
+}

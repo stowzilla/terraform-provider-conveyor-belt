@@ -70,6 +70,13 @@ func (im *IAMManager) CreateLambdaExecutionRole(ctx context.Context, roleName, l
 		Tags:                     convertToIAMTags(buildResourceTags(im.config, "IAMRole", roleName)),
 	}
 
+	// Attach the permissions boundary when configured. Some accounts only permit iam:CreateRole
+	// if the created role carries a specific boundary (e.g. a ToolBelt tenant account's SCP/policy
+	// requires ToolBeltDeployBoundary); without it CreateRole is denied.
+	if im.config.LambdaPermissionsBoundary != "" {
+		createRoleInput.PermissionsBoundary = aws.String(im.config.LambdaPermissionsBoundary)
+	}
+
 	createRoleOutput, err := im.client.CreateRole(ctx, createRoleInput)
 
 	var roleArn string
@@ -490,6 +497,11 @@ func (im *IAMManager) CreateApiGatewayCloudWatchRole(ctx context.Context, apiGat
 		AssumeRolePolicyDocument: aws.String(string(trustPolicyBytes)),
 		Description:              aws.String(fmt.Sprintf("CloudWatch logging role for %s API Gateway", apiGatewayName)),
 		Tags:                     convertToIAMTags(buildResourceTags(im.config, "IAMRole", roleName)),
+	}
+
+	// Same boundary requirement as the Lambda execution roles (see CreateLambdaExecutionRole).
+	if im.config.LambdaPermissionsBoundary != "" {
+		createRoleInput.PermissionsBoundary = aws.String(im.config.LambdaPermissionsBoundary)
 	}
 
 	createRoleOutput, err := im.client.CreateRole(ctx, createRoleInput)

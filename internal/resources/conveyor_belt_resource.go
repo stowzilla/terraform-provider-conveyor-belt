@@ -75,6 +75,7 @@ type DispatcherResourceModel struct {
 	FriendlyErrors       types.Bool   `tfsdk:"friendly_errors"`
 	SchemaSource         types.String `tfsdk:"schema_source"`
 	SuppressTableEnvVars types.Bool   `tfsdk:"suppress_table_env_vars"`
+	LambdaPermissionsBoundary types.String `tfsdk:"lambda_permissions_boundary"`
 
 	// Lambda configuration overrides
 	LambdaConfig    types.Dynamic `tfsdk:"lambda_config"`
@@ -151,6 +152,10 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "IAM policy ARNs to attach to all Lambda execution roles",
 				Optional:    true,
 				ElementType: types.StringType,
+			},
+			"lambda_permissions_boundary": schema.StringAttribute{
+				Description: "IAM permissions boundary ARN to attach to every Lambda execution role the provider creates. Required in accounts whose SCP/policy only permits iam:CreateRole when a permissions boundary is set (e.g. a ToolBelt tenant account's ToolBeltDeployBoundary).",
+				Optional:    true,
 			},
 			"lambda_layer_arns": schema.ListAttribute{
 				Description: "Lambda Layer ARNs to attach to all Lambda functions",
@@ -1403,6 +1408,10 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 	// Extract custom domain name
 	if !model.CustomDomainName.IsNull() && !model.CustomDomainName.IsUnknown() {
 		config.CustomDomainName = model.CustomDomainName.ValueString()
+	}
+
+	if !model.LambdaPermissionsBoundary.IsNull() && !model.LambdaPermissionsBoundary.IsUnknown() {
+		config.LambdaPermissionsBoundary = model.LambdaPermissionsBoundary.ValueString()
 	}
 
 	// Extract friendly_errors setting (defaults to false)
