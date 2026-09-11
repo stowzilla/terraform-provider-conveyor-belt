@@ -96,6 +96,13 @@ func (im *IAMManager) CreateLambdaExecutionRole(ctx context.Context, roleName, l
 	} else {
 		roleArn = *createRoleOutput.Role.Arn
 		utils.Info(ctx, fmt.Sprintf("✓ Created IAM role: %s", roleName))
+
+		// A brand-new IAM role is not instantly assumable by lambda.amazonaws.com.
+		// Pause once here so propagation happens up front, rather than surfacing as
+		// several failed CreateFunction attempts later. Gated to the create path
+		// only — an existing role (EntityAlreadyExists above) is already propagated
+		// and the capped-exponential CreateFunction retry remains the safety net.
+		waitForFreshRolePropagation(ctx, roleName)
 	}
 
 	// Attach basic Lambda execution policy (idempotent - safe to call even if already attached)

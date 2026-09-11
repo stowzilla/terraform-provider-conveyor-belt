@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.15] - 2026-09-11
+
+### Fixed
+
+- **Fresh IAM execution roles are now given time to propagate before the first `CreateFunction`** — A brand-new IAM role is eventually consistent and can take 30–60s+ to become assumable by `lambda.amazonaws.com`. On a first-time environment deploy the role is created milliseconds before the Lambda, so the first `CreateFunction` frequently tripped `InvalidParameterValueException: The role defined for the function cannot be assumed by Lambda`. Two changes address this: the `CreateFunction` retry now uses a capped-exponential backoff with a ~2-minute budget (the previous loop was linear despite a comment claiming otherwise, and gave up before propagation completed), and a one-time 8s pre-flight pause is inserted right after creating a fresh role (create path only — never on the `EntityAlreadyExists` path where the role is already propagated). Existing environments are unaffected because their roles are already assumable.
+
 ## [0.0.14] - 2026-09-10
 
 ### Fixed
