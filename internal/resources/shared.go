@@ -30,6 +30,12 @@ import (
 	"terraform-provider-conveyor-belt/internal/utils"
 )
 
+// defaultSharedDirs are the application source directories copied into every Lambda deployment
+// package (in addition to the handler entry file). "config" is included so an app's boot file
+// (e.g. config/environment.rb, required by non-HTTP entry points such as a worker) ships with
+// the package; omitting it caused the worker to crash at init with a LoadError.
+var defaultSharedDirs = []string{"config", "models", "lib", "helpers", "templates"}
+
 // DispatcherConfig represents the provider configuration
 type DispatcherConfig struct {
 	AppName              string
@@ -666,7 +672,7 @@ func calculateLambdaSourceHash(lambdaSourceDir, lambda string, sharedDirs []stri
 
 	// Hash shared directories using configured list (or default)
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 	for _, dirName := range sharedDirs {
 		dirPath := filepath.Join(absLambdaSourceDir, dirName)

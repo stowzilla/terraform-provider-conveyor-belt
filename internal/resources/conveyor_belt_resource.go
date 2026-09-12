@@ -821,7 +821,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		plan.LambdaSharedDirs.ElementsAs(ctx, &sharedDirs, false)
 	}
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	// Get gem dirs for hash calculation
@@ -1866,7 +1866,7 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 	// Step 4: Build Lambda packages in parallel
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	packageBuilder := NewPackageBuilder(
@@ -2111,7 +2111,7 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 func (r *dispatcherResource) calculateLambdaHashes(ctx context.Context, lambdas []string, routes []utils.Route, lambdaConfig map[string]interface{}, config *DispatcherConfig) map[string]string {
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 	hashes, err := calculateAllLambdaHashes(lambdas, routes, lambdaConfig, config.LambdaSourceDir, sharedDirs, config.LambdaLayerArns, config.AlarmConfig, config.ReadOnlyTables, config.ReadWriteTables, config.SharedIamPolicyArns)
 	if err != nil {
@@ -2126,7 +2126,7 @@ func (r *dispatcherResource) calculateLambdaHashes(ctx context.Context, lambdas 
 func (r *dispatcherResource) calculateSeparateLambdaHashes(ctx context.Context, lambdas []string, routes []utils.Route, lambdaConfig map[string]interface{}, config *DispatcherConfig) (sourceHashes, configHashes map[string]string) {
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	sourceHashes = make(map[string]string, len(lambdas))
@@ -2694,7 +2694,7 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	var buildResults map[string]*BuildResult
@@ -3310,7 +3310,7 @@ func (r *dispatcherResource) detectLambdaUpdateTasks(
 	// Determine update type by comparing source and config hashes separately
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	// Pre-filter routes by lambda for consistent hash computation

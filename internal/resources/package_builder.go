@@ -94,7 +94,7 @@ func WithDockerImage(image string) PackageBuilderOption {
 func NewPackageBuilder(sourceDir string, opts ...PackageBuilderOption) *PackageBuilder {
 	pb := &PackageBuilder{
 		sourceDir:   sourceDir,
-		sharedDirs:  []string{"models", "lib", "helpers", "templates"},
+		sharedDirs:  defaultSharedDirs,
 		concurrency: runtime.NumCPU(),
 		dockerImage: DefaultDockerBuildImage,
 	}

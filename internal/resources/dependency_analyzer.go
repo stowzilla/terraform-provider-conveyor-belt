@@ -49,7 +49,7 @@ func WithSharedDirectories(dirs []string) DependencyAnalyzerOption {
 func NewDependencyAnalyzer(sourceDir string, opts ...DependencyAnalyzerOption) *DependencyAnalyzer {
 	da := &DependencyAnalyzer{
 		sourceDir:  sourceDir,
-		sharedDirs: []string{"models", "lib", "helpers", "templates"},
+		sharedDirs: defaultSharedDirs,
 		cache:      make(map[string]*dependencyEntry),
 		modTimes:   make(map[string]time.Time),
 	}

@@ -452,7 +452,7 @@ func (r *lambdaResource) Create(ctx context.Context, req resource.CreateRequest,
 	utils.Info(ctx, "Building Lambda package...")
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	packageBuilder := NewPackageBuilder(
@@ -782,7 +782,7 @@ func (r *lambdaResource) Read(ctx context.Context, req resource.ReadRequest, res
 	// Recalculate hashes
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	sourceHash, err := calculateLambdaSourceHash(config.LambdaSourceDir, state.Name.ValueString(), sharedDirs, config.LambdaGemDirs...)
@@ -843,7 +843,7 @@ func (r *lambdaResource) Update(ctx context.Context, req resource.UpdateRequest,
 	// Calculate new hashes to detect what changed
 	sharedDirs := config.LambdaSharedDirs
 	if len(sharedDirs) == 0 {
-		sharedDirs = []string{"models", "lib", "helpers", "templates"}
+		sharedDirs = defaultSharedDirs
 	}
 
 	newSourceHash, err := calculateLambdaSourceHash(config.LambdaSourceDir, lambdaName, sharedDirs, config.LambdaGemDirs...)
