@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 
 	"terraform-provider-conveyor-belt/internal/utils"
@@ -348,9 +349,12 @@ func generateSNSStatementId(topicArn string) string {
 //
 // Requirements: 2.1 - SQS triggers are created from lambda_config.{action}.sqs_triggers
 type SQSTriggerConfig struct {
-	QueueArn  string
-	BatchSize int32 // Default: 10
-	Enabled   bool  // Default: true
+	QueueArn                       string
+	BatchSize                      int32 // Default: 10
+	MaximumBatchingWindowInSeconds int32 // Default: 0
+	MaximumConcurrency             int32 // 0 leaves AWS scaling unset
+	ReportBatchItemFailures        bool  // Default: false
+	Enabled                        bool  // Default: true
 }
 
 // ExistingSQSTrigger represents an SQS trigger found in AWS.
@@ -358,10 +362,13 @@ type SQSTriggerConfig struct {
 //
 // Requirements: 4.2 - Query existing event source mappings for the Lambda
 type ExistingSQSTrigger struct {
-	QueueArn  string
-	UUID      string
-	BatchSize int32
-	Enabled   bool
+	QueueArn                       string
+	UUID                           string
+	BatchSize                      int32
+	MaximumBatchingWindowInSeconds int32
+	MaximumConcurrency             int32
+	ReportBatchItemFailures        bool
+	Enabled                        bool
 }
 
 // extractSQSTriggers parses SQS triggers from lambda_config for a specific lambda.
@@ -428,6 +435,14 @@ func extractSQSTriggers(lambdaConfig map[string]interface{}, lambdaName string) 
 			}
 		}
 
+		maximumBatchingWindow := extractOptionalInt32(triggerMap, "maximum_batching_window_in_seconds")
+		maximumConcurrency := extractOptionalInt32(triggerMap, "maximum_concurrency")
+
+		reportBatchItemFailures := false
+		if value, exists := triggerMap["report_batch_item_failures"]; exists {
+			reportBatchItemFailures, _ = value.(bool)
+		}
+
 		// Extract enabled (optional, default: true)
 		enabled := true
 		if enabledRaw, exists := triggerMap["enabled"]; exists {
@@ -437,13 +452,38 @@ func extractSQSTriggers(lambdaConfig map[string]interface{}, lambdaName string) 
 		}
 
 		triggers = append(triggers, SQSTriggerConfig{
-			QueueArn:  queueArn,
-			BatchSize: batchSize,
-			Enabled:   enabled,
+			QueueArn:                       queueArn,
+			BatchSize:                      batchSize,
+			MaximumBatchingWindowInSeconds: maximumBatchingWindow,
+			MaximumConcurrency:             maximumConcurrency,
+			ReportBatchItemFailures:        reportBatchItemFailures,
+			Enabled:                        enabled,
 		})
 	}
 
 	return triggers
+}
+
+func extractOptionalInt32(values map[string]interface{}, key string) int32 {
+	value, exists := values[key]
+	if !exists {
+		return 0
+	}
+
+	if number, ok := extractInt64Value(value); ok {
+		return int32(number)
+	}
+
+	switch number := value.(type) {
+	case int:
+		return int32(number)
+	case int32:
+		return number
+	case int64:
+		return int32(number)
+	default:
+		return 0
+	}
 }
 
 // getExistingSQSTriggers queries AWS to find existing SQS triggers for a Lambda function.
@@ -491,11 +531,32 @@ func (tm *TriggerManager) getExistingSQSTriggers(ctx context.Context, functionNa
 				enabled = *mapping.State == "Enabled" || *mapping.State == "Enabling"
 			}
 
+			maximumBatchingWindow := int32(0)
+			if mapping.MaximumBatchingWindowInSeconds != nil {
+				maximumBatchingWindow = *mapping.MaximumBatchingWindowInSeconds
+			}
+
+			maximumConcurrency := int32(0)
+			if mapping.ScalingConfig.MaximumConcurrency != nil {
+				maximumConcurrency = *mapping.ScalingConfig.MaximumConcurrency
+			}
+
+			reportBatchItemFailures := false
+			for _, responseType := range mapping.FunctionResponseTypes {
+				if responseType == lambdatypes.FunctionResponseTypeReportBatchItemFailures {
+					reportBatchItemFailures = true
+					break
+				}
+			}
+
 			trigger := ExistingSQSTrigger{
-				QueueArn:  *mapping.EventSourceArn,
-				UUID:      aws.ToString(mapping.UUID),
-				BatchSize: batchSize,
-				Enabled:   enabled,
+				QueueArn:                       *mapping.EventSourceArn,
+				UUID:                           aws.ToString(mapping.UUID),
+				BatchSize:                      batchSize,
+				MaximumBatchingWindowInSeconds: maximumBatchingWindow,
+				MaximumConcurrency:             maximumConcurrency,
+				ReportBatchItemFailures:        reportBatchItemFailures,
+				Enabled:                        enabled,
 			}
 
 			existingTriggers = append(existingTriggers, trigger)
@@ -1000,8 +1061,8 @@ func (tm *TriggerManager) ReconcileSNSTriggers(
 	desiredTriggers []SNSTriggerConfig,
 ) error {
 	utils.Info(ctx, "Reconciling SNS triggers", map[string]interface{}{
-		"function":       functionName,
-		"desired_count":  len(desiredTriggers),
+		"function":      functionName,
+		"desired_count": len(desiredTriggers),
 	})
 
 	// Step 1: Get existing SNS triggers from AWS
@@ -1205,8 +1266,8 @@ type SQSTriggerDiffResult struct {
 // It creates an event source mapping that connects the SQS queue to the Lambda.
 //
 // The function is idempotent (Requirement 6.3):
-// - If an event source mapping already exists for the same queue (ResourceConflictException),
-//   it finds the existing mapping and updates it rather than failing
+//   - If an event source mapping already exists for the same queue (ResourceConflictException),
+//     it finds the existing mapping and updates it rather than failing
 //
 // The operation is wrapped with retry logic for transient failures (Requirement 6.5).
 //
@@ -1227,10 +1288,13 @@ func (tm *TriggerManager) createSQSTrigger(ctx context.Context, functionName str
 	// Wrapped with retry for transient failures (Requirement 6.5)
 	err := withRetry(ctx, tm.retryConfig, "CreateEventSourceMapping", func() error {
 		output, err := tm.lambdaClient.CreateEventSourceMapping(ctx, &lambda.CreateEventSourceMappingInput{
-			FunctionName:   aws.String(functionName),
-			EventSourceArn: aws.String(trigger.QueueArn),
-			BatchSize:      aws.Int32(trigger.BatchSize),
-			Enabled:        aws.Bool(trigger.Enabled),
+			FunctionName:                   aws.String(functionName),
+			EventSourceArn:                 aws.String(trigger.QueueArn),
+			BatchSize:                      aws.Int32(trigger.BatchSize),
+			MaximumBatchingWindowInSeconds: aws.Int32(trigger.MaximumBatchingWindowInSeconds),
+			FunctionResponseTypes:          sqsFunctionResponseTypes(trigger.ReportBatchItemFailures),
+			ScalingConfig:                  sqsScalingConfig(trigger.MaximumConcurrency),
+			Enabled:                        aws.Bool(trigger.Enabled),
 		})
 
 		if err != nil {
@@ -1254,9 +1318,12 @@ func (tm *TriggerManager) createSQSTrigger(ctx context.Context, functionName str
 
 				// Update the existing mapping with the desired configuration
 				updateOutput, updateErr := tm.lambdaClient.UpdateEventSourceMapping(ctx, &lambda.UpdateEventSourceMappingInput{
-					UUID:      aws.String(existingUUID),
-					BatchSize: aws.Int32(trigger.BatchSize),
-					Enabled:   aws.Bool(trigger.Enabled),
+					UUID:                           aws.String(existingUUID),
+					BatchSize:                      aws.Int32(trigger.BatchSize),
+					MaximumBatchingWindowInSeconds: aws.Int32(trigger.MaximumBatchingWindowInSeconds),
+					FunctionResponseTypes:          sqsFunctionResponseTypes(trigger.ReportBatchItemFailures),
+					ScalingConfig:                  sqsScalingConfig(trigger.MaximumConcurrency),
+					Enabled:                        aws.Bool(trigger.Enabled),
 				})
 				if updateErr != nil {
 					return fmt.Errorf("failed to update existing event source mapping: %w", updateErr)
@@ -1359,6 +1426,9 @@ func diffSQSTriggers(desired []SQSTriggerConfig, existing []ExistingSQSTrigger) 
 		} else {
 			// Trigger exists - check if batch_size or enabled changed (needs update)
 			if desiredTrigger.BatchSize != existingTrigger.BatchSize ||
+				desiredTrigger.MaximumBatchingWindowInSeconds != existingTrigger.MaximumBatchingWindowInSeconds ||
+				desiredTrigger.MaximumConcurrency != existingTrigger.MaximumConcurrency ||
+				desiredTrigger.ReportBatchItemFailures != existingTrigger.ReportBatchItemFailures ||
 				desiredTrigger.Enabled != existingTrigger.Enabled {
 				result.ToUpdate = append(result.ToUpdate, SQSTriggerUpdate{
 					Config: desiredTrigger,
@@ -1403,9 +1473,12 @@ func (tm *TriggerManager) updateSQSTrigger(ctx context.Context, update SQSTrigge
 	// Wrapped with retry for transient failures (Requirement 6.5)
 	err := withRetry(ctx, tm.retryConfig, "UpdateEventSourceMapping", func() error {
 		_, err := tm.lambdaClient.UpdateEventSourceMapping(ctx, &lambda.UpdateEventSourceMappingInput{
-			UUID:      aws.String(update.UUID),
-			BatchSize: aws.Int32(update.Config.BatchSize),
-			Enabled:   aws.Bool(update.Config.Enabled),
+			UUID:                           aws.String(update.UUID),
+			BatchSize:                      aws.Int32(update.Config.BatchSize),
+			MaximumBatchingWindowInSeconds: aws.Int32(update.Config.MaximumBatchingWindowInSeconds),
+			FunctionResponseTypes:          sqsFunctionResponseTypes(update.Config.ReportBatchItemFailures),
+			ScalingConfig:                  sqsScalingConfig(update.Config.MaximumConcurrency),
+			Enabled:                        aws.Bool(update.Config.Enabled),
 		})
 		return err
 	})
@@ -1421,6 +1494,22 @@ func (tm *TriggerManager) updateSQSTrigger(ctx context.Context, update SQSTrigge
 	})
 
 	return nil
+}
+
+func sqsFunctionResponseTypes(reportBatchItemFailures bool) []lambdatypes.FunctionResponseType {
+	if !reportBatchItemFailures {
+		return []lambdatypes.FunctionResponseType{}
+	}
+
+	return []lambdatypes.FunctionResponseType{lambdatypes.FunctionResponseTypeReportBatchItemFailures}
+}
+
+func sqsScalingConfig(maximumConcurrency int32) *lambdatypes.ScalingConfig {
+	if maximumConcurrency <= 0 {
+		return &lambdatypes.ScalingConfig{}
+	}
+
+	return &lambdatypes.ScalingConfig{MaximumConcurrency: aws.Int32(maximumConcurrency)}
 }
 
 // deleteSQSTrigger deletes an SQS trigger (event source mapping) from a Lambda function.
