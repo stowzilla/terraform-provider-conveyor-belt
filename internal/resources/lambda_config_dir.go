@@ -680,9 +680,17 @@ func convertSQSTriggers(triggersRaw interface{}, envRefs map[string]string) []in
 			}
 		}
 
-		// Pass through batch_size
-		if bs, exists := triggerMap["batch_size"]; exists {
-			entry["batch_size"] = bs
+		// Pass through event source mapping controls.
+		for _, key := range []string{
+			"batch_size",
+			"maximum_batching_window_in_seconds",
+			"maximum_concurrency",
+			"report_batch_item_failures",
+			"enabled",
+		} {
+			if value, exists := triggerMap[key]; exists {
+				entry[key] = value
+			}
 		}
 
 		if _, hasArn := entry["queue_arn"]; hasArn {

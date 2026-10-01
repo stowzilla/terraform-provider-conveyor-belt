@@ -313,6 +313,9 @@ default: &default
   sqs_triggers:
     - queue_arn: ref(jobs_queue_arn)
       batch_size: 10
+      maximum_batching_window_in_seconds: 1
+      maximum_concurrency: 10
+      report_batch_item_failures: true
 
 dev:
   <<: *default

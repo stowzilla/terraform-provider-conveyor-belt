@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **SQS event source mappings now support production worker controls** — `sqs_triggers` accepts `report_batch_item_failures`, `maximum_batching_window_in_seconds`, and `maximum_concurrency` in addition to `queue_arn`, `batch_size`, and `enabled`. These settings are reconciled on create and update, enabling per-record partial failure responses and bounded Lambda worker concurrency.
+
 ## [0.0.15] - 2026-09-11
 
 ### Fixed
