@@ -162,16 +162,22 @@ func (c *DispatcherConfig) GetLambdaRuntime() string {
 	return "ruby" + c.GetRubyVersion()
 }
 
-// GetCORSOriginForConfig returns the CORS origin for DispatcherConfig
+// GetCORSOriginForConfig returns the CORS origin for DispatcherConfig.
+// For API Gateway-level CORS (mock integrations, gateway responses), we use
+// the first configured frontend URL. Runtime CORS for Lambda responses is
+// handled dynamically by Belt::Helpers::CorsOrigin which validates against
+// all configured origins.
+//
+// Using '*' when multiple origins exist is intentionally avoided because:
+// - It prevents credentialed requests (cookies, Authorization header)
+// - It's overly permissive for production APIs
 func GetCORSOriginForConfig(config *DispatcherConfig) string {
 	if len(config.FrontendUrls) == 0 {
 		return "http://localhost:3000" // Default for development
 	}
-	if len(config.FrontendUrls) == 1 {
-		return config.FrontendUrls[0]
-	}
-	// For multiple origins, use wildcard
-	return "*"
+	// Use the first configured origin for API Gateway-level CORS.
+	// Lambda runtime handles multi-origin validation dynamically.
+	return config.FrontendUrls[0]
 }
 
 // buildResourceTags creates a map of tags for AWS resources
