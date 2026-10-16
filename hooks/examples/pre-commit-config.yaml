@@ -1,0 +1,45 @@
+# Recommended pre-commit hooks for projects using the Conveyor Belt Terraform provider.
+#
+# Setup:
+#   1. Install pre-commit: pip install pre-commit (or brew install pre-commit)
+#   2. Copy this file to your project root as .pre-commit-config.yaml
+#   3. Run: pre-commit install
+#
+# Prerequisites:
+#   - terraform CLI (for fmt/validate hooks)
+#   - belt CLI (for route validation): gem install belt
+#   - ruby (for syntax checking)
+#   - checkov (for security scanning): pip install checkov
+
+repos:
+  # Conveyor Belt hooks — validate routes, block generated files, security scan
+  - repo: https://github.com/stowzilla/terraform-provider-conveyor-belt
+    rev: v0.23.0  # Use the latest provider version
+    hooks:
+      - id: conveyor-belt-routes-validate
+      - id: conveyor-belt-no-generated-files
+      - id: conveyor-belt-lambda-syntax
+      - id: conveyor-belt-checkov
+
+  # Terraform formatting and validation
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      # Full Checkov scan (all built-in AWS/Terraform policies)
+      - id: terraform_checkov
+        args:
+          - --args=--quiet
+          - --args=--compact
+
+  # General file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']

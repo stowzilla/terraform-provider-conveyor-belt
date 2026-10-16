@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_11"
+  name: "Ensure Lambda memory size is within cost-effective bounds"
+  category: "GENERAL_SECURITY"
+  guideline: "Lambda functions should not exceed 3008 MB memory unless explicitly justified. Excessive memory allocation increases costs significantly. Override per-resource if needed."
+
+scope:
+  provider: "conveyor-belt"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "conveyor_belt_lambda"
+  attribute: "memory"
+  operator: "less_than_or_equal"
+  value: 3008

@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_7"
+  name: "Ensure DynamoDB tables have deletion protection enabled"
+  category: "GENERAL_SECURITY"
+  guideline: "DynamoDB tables used in production should have deletion_protection_enabled = true to prevent accidental data loss from misapplied Terraform changes."
+
+scope:
+  provider: "aws"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_dynamodb_table"
+  attribute: "deletion_protection_enabled"
+  operator: "equals"
+  value: "true"

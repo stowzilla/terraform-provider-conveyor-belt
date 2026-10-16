@@ -1,0 +1,35 @@
+metadata:
+  id: "CKV_CONVEYOR_10"
+  name: "Ensure S3 buckets block public access"
+  category: "GENERAL_SECURITY"
+  guideline: "S3 buckets used with Conveyor Belt should block all public access. Accidental public exposure of application data is a critical security risk."
+
+scope:
+  provider: "aws"
+
+definition:
+  and:
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_s3_bucket_public_access_block"
+      attribute: "block_public_acls"
+      operator: "equals"
+      value: "true"
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_s3_bucket_public_access_block"
+      attribute: "block_public_policy"
+      operator: "equals"
+      value: "true"
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_s3_bucket_public_access_block"
+      attribute: "ignore_public_acls"
+      operator: "equals"
+      value: "true"
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_s3_bucket_public_access_block"
+      attribute: "restrict_public_buckets"
+      operator: "equals"
+      value: "true"

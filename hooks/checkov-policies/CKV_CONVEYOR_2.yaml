@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_2"
+  name: "Ensure friendly_errors is disabled in production"
+  category: "GENERAL_SECURITY"
+  guideline: "Friendly error messages expose internal routing details. Disable in production to prevent information leakage."
+
+scope:
+  provider: "conveyor-belt"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "conveyor_belt"
+  attribute: "friendly_errors"
+  operator: "not_equals"
+  value: "true"

@@ -1,0 +1,15 @@
+metadata:
+  id: "CKV_CONVEYOR_4"
+  name: "Ensure alarm SNS topic is configured when alarms are enabled"
+  category: "LOGGING"
+  guideline: "When CloudWatch alarms are enabled, an SNS topic ARN must be configured to receive alarm notifications."
+
+scope:
+  provider: "conveyor-belt"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "conveyor_belt"
+  attribute: "alarm_config.sns_topic_arn"
+  operator: "is_not_empty"

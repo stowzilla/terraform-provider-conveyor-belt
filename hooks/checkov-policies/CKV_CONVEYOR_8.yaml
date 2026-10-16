@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_8"
+  name: "Ensure DynamoDB tables have point-in-time recovery enabled"
+  category: "BACKUP_AND_RECOVERY"
+  guideline: "DynamoDB tables should have point-in-time recovery (PITR) enabled to allow restoration to any point within the last 35 days. Critical for disaster recovery."
+
+scope:
+  provider: "aws"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_dynamodb_table"
+  attribute: "point_in_time_recovery.enabled"
+  operator: "equals"
+  value: "true"

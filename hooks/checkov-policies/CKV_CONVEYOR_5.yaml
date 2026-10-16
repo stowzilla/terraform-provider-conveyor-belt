@@ -1,0 +1,16 @@
+metadata:
+  id: "CKV_CONVEYOR_5"
+  name: "Ensure Lambda timeout does not exceed 900 seconds"
+  category: "GENERAL_SECURITY"
+  guideline: "Lambda functions should have a reasonable timeout to prevent runaway executions and excessive costs. AWS maximum is 900s."
+
+scope:
+  provider: "conveyor-belt"
+
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "conveyor_belt_lambda"
+  attribute: "timeout"
+  operator: "less_than_or_equal"
+  value: 900
