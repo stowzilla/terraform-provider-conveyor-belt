@@ -237,12 +237,31 @@ terraform apply
 |-----------|----------|---------|-------------|
 | `environment` | Yes | — | Environment name (dev, staging, prod) |
 | `aws_region` | Yes | — | AWS region |
-| `ruby_version` | No | `"3.4"` | Ruby version for Lambda runtime and default Docker build image |
+| `ruby_version` | No | `"3.4"` | Ruby version for Lambda runtime (`ruby<version>`) and default Docker build image (`public.ecr.aws/sam/build-ruby<version>:latest-x86_64`). Changing it on an existing deployment migrates every function: code is rebuilt with the matching build image and the runtime is updated (requires 0.0.16+) |
 | `docker_build_image` | No | — | Override the Docker image used to build Lambda dependencies |
 | `default_lambda_timeout` | No | 30 | Default Lambda timeout (seconds) |
 | `default_lambda_memory` | No | 128 | Default Lambda memory (MB) |
 | `default_tags` | No | `{}` | Tags applied to all resources |
 | `docker_build_concurrency` | No | CPU count | Max concurrent Docker builds |
+
+### Upgrading to Ruby 4.0
+
+Set `ruby_version` on the provider and apply:
+
+```hcl
+provider "conveyor-belt" {
+  environment  = var.environment
+  aws_region   = var.aws_region
+  ruby_version = "4.0"
+}
+```
+
+```bash
+terraform plan   # lists every Lambda still on ruby3.4 under "Lambdas to UPDATE"
+terraform apply  # rebuilds gems with build-ruby4.0, then sets Runtime = ruby4.0
+```
+
+During refresh the provider compares each deployed function's runtime with `ruby_version`; any mismatch forces a full update of that function (new code built against `vendor/bundle/ruby/4.0.0`, then `UpdateFunctionConfiguration` with the new runtime). Make sure your Gemfile/Gemfile.lock resolve under Ruby 4.0 first. If you set a custom `docker_build_image`, it must also be a Ruby 4.0 image. Do not run this apply with `-refresh=false`, since drift is detected during refresh. Per-lambda YAML `runtime:` keys are not used; the runtime comes only from `ruby_version`.
 
 ## Resources
 

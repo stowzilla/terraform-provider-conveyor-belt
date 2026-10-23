@@ -162,6 +162,33 @@ func (c *DispatcherConfig) GetLambdaRuntime() string {
 	return "ruby" + c.GetRubyVersion()
 }
 
+// lambdaRuntimeDrifted reports whether a deployed Lambda's runtime differs from
+// the expected runtime. An empty actual runtime (e.g. container-image functions,
+// or a GetFunction response without configuration) is never treated as drift.
+func lambdaRuntimeDrifted(actual, expected string) bool {
+	if actual == "" || expected == "" {
+		return false
+	}
+	return actual != expected
+}
+
+// detectRuntimeDrift returns the actions of existing Lambdas whose deployed
+// runtime does not match expectedRuntime (e.g. after changing ruby_version from
+// "3.4" to "4.0"). Lambdas that don't exist or failed to read are skipped.
+func detectRuntimeDrift(results []LambdaStateResult, expectedRuntime string) []string {
+	var drifted []string
+	for _, result := range results {
+		if !result.Exists || result.Error != nil {
+			continue
+		}
+		if lambdaRuntimeDrifted(result.Runtime, expectedRuntime) {
+			drifted = append(drifted, result.Action)
+		}
+	}
+	sort.Strings(drifted)
+	return drifted
+}
+
 // GetCORSOriginForConfig returns the CORS origin for DispatcherConfig
 func GetCORSOriginForConfig(config *DispatcherConfig) string {
 	if len(config.FrontendUrls) == 0 {
