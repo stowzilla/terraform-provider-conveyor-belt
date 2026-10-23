@@ -43,6 +43,7 @@ func TestLambdaRuntimeDrifted(t *testing.T) {
 		{"ruby3.4", "ruby3.4", false},
 		{"", "ruby4.0", false}, // unknown actual runtime (e.g. image-based function)
 		{"ruby3.4", "", false},
+		{"nodejs20.x", "ruby4.0", false}, // never rewrite a non-Ruby function
 	}
 	for _, tt := range tests {
 		if got := lambdaRuntimeDrifted(tt.actual, tt.expected); got != tt.want {

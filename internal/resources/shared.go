@@ -164,9 +164,10 @@ func (c *DispatcherConfig) GetLambdaRuntime() string {
 
 // lambdaRuntimeDrifted reports whether a deployed Lambda's runtime differs from
 // the expected runtime. An empty actual runtime (e.g. container-image functions,
-// or a GetFunction response without configuration) is never treated as drift.
+// or a GetFunction response without configuration) is never treated as drift,
+// and neither is a non-Ruby runtime — ruby_version must never rewrite those.
 func lambdaRuntimeDrifted(actual, expected string) bool {
-	if actual == "" || expected == "" {
+	if actual == "" || expected == "" || !strings.HasPrefix(actual, "ruby") {
 		return false
 	}
 	return actual != expected
