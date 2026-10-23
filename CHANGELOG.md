@@ -5,6 +5,13 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.16] - 2026-10-23
+
+### Fixed
+
+- **Changing `ruby_version` now migrates existing Lambdas (e.g. Ruby 3.4 → 4.0)** — Previously `ruby_version` was only applied at `CreateFunction`: `UpdateFunctionConfiguration` never set `Runtime`, and nothing flagged existing functions as changed, so switching `ruby_version = "4.0"` produced no plan diff and existing functions stayed on `ruby3.4` forever. `UpdateFunctionConfiguration` now always sets `Runtime` from `ruby_version`, and Read compares each deployed function's runtime with the expected one; on mismatch it clears that function's source and config hashes in state so the next plan shows it under "Lambdas to UPDATE" and apply rebuilds the code with the matching build image (`build-ruby4.0`, so `vendor/bundle/ruby/4.0.0` matches the runtime ABI) before updating the runtime. Ruby version is intentionally not part of the lambda hashes, so upgrading the provider alone does not redeploy anything.
+- **`conveyor_belt_lambda` now honors provider-level `ruby_version`** — The standalone lambda resource ignored `ruby_version` entirely (always `ruby3.4` and the 3.4 build image). It now uses the derived runtime on create/update and the derived build image when `docker_build_image` is not set.
+
 ## [0.0.15] - 2026-09-11
 
 ### Fixed

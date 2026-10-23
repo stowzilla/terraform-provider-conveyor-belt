@@ -30,10 +30,10 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource                   = &dispatcherResource{}
-	_ resource.ResourceWithConfigure      = &dispatcherResource{}
-	_ resource.ResourceWithImportState    = &dispatcherResource{}
-	_ resource.ResourceWithModifyPlan     = &dispatcherResource{}
+	_ resource.Resource                = &dispatcherResource{}
+	_ resource.ResourceWithConfigure   = &dispatcherResource{}
+	_ resource.ResourceWithImportState = &dispatcherResource{}
+	_ resource.ResourceWithModifyPlan  = &dispatcherResource{}
 )
 
 // NewDispatcherResource is a helper function to simplify the provider implementation.
@@ -79,7 +79,7 @@ type DispatcherResourceModel struct {
 	// Lambda configuration overrides
 	LambdaConfig    types.Dynamic `tfsdk:"lambda_config"`
 	LambdaConfigDir types.String  `tfsdk:"lambda_config_dir"`
-	LambdaEnvRefs   types.Map    `tfsdk:"lambda_env_refs"`
+	LambdaEnvRefs   types.Map     `tfsdk:"lambda_env_refs"`
 
 	// Alarm configuration
 	AlarmConfig types.Object `tfsdk:"alarm_config"`
@@ -736,7 +736,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	for _, g := range gatewaysToUpdate {
 		oldGatewayRoutes := filterRoutesByGatewayFromState(ctx, &state, g)
 		newGatewayRoutes := filterRoutesByGateway(routes, g)
-		
+
 		added, removed := diffRoutes(oldGatewayRoutes, newGatewayRoutes)
 		if len(added) > 0 || len(removed) > 0 {
 			// Gateway header with counts
@@ -748,7 +748,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 				counts = append(counts, fmt.Sprintf("-%d routes", len(removed)))
 			}
 			routeChangeSummary = append(routeChangeSummary, fmt.Sprintf("Gateway '%s': %s", g, strings.Join(counts, ", ")))
-			
+
 			// Each added route on its own line
 			for _, r := range added {
 				routeChangeSummary = append(routeChangeSummary, fmt.Sprintf("  + %s %s", r.Verb, r.Path))
@@ -780,7 +780,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	// Add a warning to show the user what will change
 	if routesChanged || lambdaStructureChanged || gatewayStructureChanged || len(gatewaysToUpdate) > 0 {
 		var changeMessages []string
-		
+
 		if len(lambdasAdded) > 0 {
 			changeMessages = append(changeMessages, fmt.Sprintf("Lambdas to CREATE: [%s]", strings.Join(lambdasAdded, ", ")))
 		}
@@ -799,7 +799,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		for _, summary := range routeChangeSummary {
 			changeMessages = append(changeMessages, summary)
 		}
-		
+
 		if len(changeMessages) > 0 {
 			resp.Diagnostics.AddWarning(
 				"Dispatcher Resource Changes Detected",
@@ -1065,7 +1065,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 
 	// Check which lambdas have hash changes and collect them for reporting
 	var lambdasToUpdate []string
-	
+
 	// Pre-filter routes by lambda for consistent hash computation
 	routeLambdaGroups := utils.GroupByLambda(routes)
 
@@ -1100,15 +1100,15 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Lambda changes detected", map[string]interface{}{
 			"lambdas_to_update": lambdasToUpdate,
 		})
-		
+
 		// Report which lambdas will be updated in the plan output
 		resp.Diagnostics.AddWarning(
 			"Lambda Changes Detected",
-			fmt.Sprintf("Lambdas to UPDATE: [%s]\n\nNote: Changes to shared directories (%s) affect all Lambdas.", 
+			fmt.Sprintf("Lambdas to UPDATE: [%s]\n\nNote: Changes to shared directories (%s) affect all Lambdas.",
 				strings.Join(lambdasToUpdate, ", "),
 				strings.Join(sharedDirs, ", ")),
 		)
-		
+
 		// Compute actual new hashes instead of marking unknown
 		newAllLambdaHashes, err := calculateAllLambdaHashes(lambdas, routes, lambdaConfig, lambdaSourceDir, sharedDirs, layerArns, alarmConfig, readOnlyTables, readWriteTables, sharedIamPolicyArns)
 		if err != nil {
@@ -1218,7 +1218,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 				currentMappings = make(map[string]string)
 				state.BasePathMappings.ElementsAs(ctx, &currentMappings, false)
 			}
-			
+
 			missingMappings := false
 			for _, g := range gateways {
 				if _, exists := currentMappings[g]; !exists {
@@ -1229,7 +1229,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 					break
 				}
 			}
-			
+
 			if missingMappings {
 				tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Marking base_path_mappings as unknown due to missing mappings")
 				plan.BasePathMappings = types.MapUnknown(types.StringType)
@@ -1428,7 +1428,6 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 	return config, nil
 }
 
-
 // parseRoutes executes belt routes and returns parsed routes
 func (r *dispatcherResource) parseRoutes(ctx context.Context, source string) ([]utils.Route, error) {
 	return executeBeltRoutes(ctx, source)
@@ -1499,7 +1498,7 @@ func (r *dispatcherResource) extractAlarmConfig(ctx context.Context, model *Disp
 		InvocationsPeriod:            300,
 		InvocationsEvaluationPeriods: 1,
 		InvocationsStatistic:         "Sum",
-		LambdaOverrides:             make(map[string]*LambdaAlarmConfig),
+		LambdaOverrides:              make(map[string]*LambdaAlarmConfig),
 	}
 
 	if v, ok := attrs["enabled"].(types.Bool); ok && !v.IsNull() && !v.IsUnknown() {
@@ -2013,7 +2012,6 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 	// change deployment behavior. The imperative path above is still the active deployer.
 	openAPISpecHashes := r.generateOpenAPISpecsSideEffect(ctx, routes, lambdaARNs, models, config)
 
-
 	// Step 8: Populate computed outputs
 	plan.ID = types.StringValue(fmt.Sprintf("%s-%s", config.AppName, config.Environment))
 
@@ -2090,9 +2088,9 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	utils.Info(ctx, "Successfully created dispatcher resource", map[string]interface{}{
-		"id":             plan.ID.ValueString(),
-		"lambda_count":   len(lambdaARNs),
-		"gateway_count":  len(gatewayIDs),
+		"id":            plan.ID.ValueString(),
+		"lambda_count":  len(lambdaARNs),
+		"gateway_count": len(gatewayIDs),
 	})
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -2140,7 +2138,6 @@ func (r *dispatcherResource) calculateSeparateLambdaHashes(ctx context.Context, 
 	}
 	return sourceHashes, configHashes
 }
-
 
 // Read reads the resource state from AWS.
 func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -2223,7 +2220,7 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 	if !state.LambdaFunctions.IsNull() && !state.LambdaFunctions.IsUnknown() {
 		state.LambdaFunctions.ElementsAs(ctx, &lambdaARNs, false)
 	}
-	
+
 	var missingLambdas []string
 	for _, result := range lambdaStateResults {
 		if result.Error != nil {
@@ -2288,7 +2285,49 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 		}
 	}
 
-	if envVarDriftDetected {
+	// Detect runtime drift: if a deployed Lambda's runtime doesn't match the
+	// provider's ruby_version (e.g. ruby_version changed from "3.4" to "4.0"),
+	// clear its combined, source, AND config hashes in state. Plan then sees a
+	// change and Update performs a "both" update: the code is rebuilt with the
+	// matching build image (vendor/bundle/ruby/X.Y.0 must match the runtime ABI)
+	// and UpdateFunctionConfiguration sets the new Runtime. Ruby version is
+	// deliberately NOT part of the hashes so that upgrading the provider does
+	// not force a redeploy of every Lambda.
+	oldSourceHashes := make(map[string]string)
+	if !state.LambdaSourceHashes.IsNull() && !state.LambdaSourceHashes.IsUnknown() {
+		state.LambdaSourceHashes.ElementsAs(ctx, &oldSourceHashes, false)
+	}
+	expectedRuntime := config.GetLambdaRuntime()
+	runtimeDrifted := detectRuntimeDrift(lambdaStateResults, expectedRuntime)
+	if len(runtimeDrifted) > 0 {
+		actualRuntimes := make(map[string]string, len(lambdaStateResults))
+		for _, result := range lambdaStateResults {
+			actualRuntimes[result.Action] = result.Runtime
+		}
+		for _, action := range runtimeDrifted {
+			utils.Warn(ctx, "Lambda runtime drift detected — clearing source and config hashes to force rebuild and runtime update", map[string]interface{}{
+				"lambda":           action,
+				"actual_runtime":   actualRuntimes[action],
+				"expected_runtime": expectedRuntime,
+			})
+			delete(oldConfigHashes, action)
+			delete(oldSourceHashes, action)
+			delete(oldLambdaHashes, action)
+		}
+		utils.Info(ctx, "Runtime drift detected, Lambdas will be rebuilt and migrated on next apply", map[string]interface{}{
+			"expected_runtime": expectedRuntime,
+			"lambdas":          runtimeDrifted,
+		})
+		if len(oldSourceHashes) > 0 {
+			shMap, d := types.MapValueFrom(ctx, types.StringType, oldSourceHashes)
+			resp.Diagnostics.Append(d...)
+			state.LambdaSourceHashes = shMap
+		} else {
+			state.LambdaSourceHashes = types.MapNull(types.StringType)
+		}
+	}
+
+	if envVarDriftDetected || len(runtimeDrifted) > 0 {
 		// Write updated hashes back to state
 		if len(oldConfigHashes) > 0 {
 			chMap, d := types.MapValueFrom(ctx, types.StringType, oldConfigHashes)
@@ -2319,7 +2358,7 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 	if !state.ApiGatewayUrls.IsNull() && !state.ApiGatewayUrls.IsUnknown() {
 		state.ApiGatewayUrls.ElementsAs(ctx, &gatewayURLs, false)
 	}
-	
+
 	var missingGateways []string
 	for _, result := range gatewayStateResults {
 		if result.Error != nil {
@@ -3061,8 +3100,8 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 			}
 
 			utils.Info(ctx, "Base path mappings resolved", map[string]interface{}{
-				"custom_domain_url":       customDomainUrl,
-				"mapping_count":           len(basePathMappings),
+				"custom_domain_url":         customDomainUrl,
+				"mapping_count":             len(basePathMappings),
 				"gateway_structure_changed": gatewayStructureChanged,
 			})
 		}
@@ -3154,7 +3193,6 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 	// the hash in state for gateways that the plan marked as unknown.
 	// This prevents "inconsistent result after apply" errors when only lambda source changes.
 	openAPISpecHashes := r.generateOpenAPISpecsSideEffect(ctx, routes, lambdaARNs, models, config)
-
 
 	if !plan.OpenAPISpecHashes.IsNull() {
 		// Merge: replace unknown elements with computed values, keep known elements
@@ -3271,7 +3309,6 @@ func (r *dispatcherResource) detectGatewayChanges(newGateways []string, oldIDs m
 
 	return toCreate, toUpdate, toDelete
 }
-
 
 // detectLambdaUpdateTasks determines which lambdas need updates and what type of update
 // Returns update tasks with the appropriate update type (source, config, or both)
