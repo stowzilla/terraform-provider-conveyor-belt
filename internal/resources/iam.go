@@ -194,6 +194,24 @@ func (im *IAMManager) AttachSharedIamPolicies(ctx context.Context, roleName stri
 	return im.AttachPolicyArns(ctx, roleName, im.config.SharedIamPolicyArns)
 }
 
+// AttachPerLambdaIamPolicies attaches the iam_policy_arns declared for a single
+// lambda in lambda_config (config/lambda/<name>.yml or the HCL lambda_config map).
+// Unlike shared_iam_policy_arns these apply to one role only, so every code path
+// that sets up or reconciles a lambda role must call this — not just the api lambda.
+// Returns a hard error if any policy fails to attach (e.g., IAM quota exceeded).
+func (im *IAMManager) AttachPerLambdaIamPolicies(ctx context.Context, roleName, lambdaName string, lambdaConfig map[string]interface{}) error {
+	perLambdaArns := extractPerLambdaIamPolicyArns(lambdaConfig, lambdaName)
+	if len(perLambdaArns) == 0 {
+		return nil
+	}
+	utils.Info(ctx, "Attaching per-lambda IAM policies from lambda_config", map[string]interface{}{
+		"lambda":       lambdaName,
+		"role_name":    roleName,
+		"policy_count": len(perLambdaArns),
+	})
+	return im.AttachPolicyArns(ctx, roleName, perLambdaArns)
+}
+
 // AttachPolicyArns attaches a list of IAM policy ARNs to a Lambda role.
 // Used for both shared policies and per-lambda policies from lambda_config.
 func (im *IAMManager) AttachPolicyArns(ctx context.Context, roleName string, policyArns []string) error {
@@ -274,7 +292,19 @@ func (im *IAMManager) DetachRemovedSharedIamPolicies(ctx context.Context, roleNa
 // and detaches any that are not in the current SharedIamPolicyArns config and not
 // managed by the provider (basic execution, invoke policies, etc).
 // This is state-independent — it works even if Terraform state is stale.
+//
+// Only use this for roles that have no per-lambda iam_policy_arns to keep (roles
+// being deleted, orphaned roles). For live lambda roles call ReconcileIamPolicies
+// with the lambda's own iam_policy_arns so they are not detached as "stale".
 func (im *IAMManager) ReconcileSharedIamPolicies(ctx context.Context, roleName string) error {
+	return im.ReconcileIamPolicies(ctx, roleName, nil)
+}
+
+// ReconcileIamPolicies is ReconcileSharedIamPolicies plus a set of per-lambda
+// policy ARNs (from lambda_config iam_policy_arns) that must also be kept.
+// Customer-managed policies attached to the role that are in neither the shared
+// set nor perLambdaArns, and that the provider did not create, are detached.
+func (im *IAMManager) ReconcileIamPolicies(ctx context.Context, roleName string, perLambdaArns []string) error {
 	// Query AWS for what's actually attached to this role
 	listInput := &iam.ListAttachedRolePoliciesInput{
 		RoleName: aws.String(roleName),
@@ -293,9 +323,13 @@ func (im *IAMManager) ReconcileSharedIamPolicies(ctx context.Context, roleName s
 		return fmt.Errorf("failed to list attached policies for role %s: %w", roleName, err)
 	}
 
-	// Build set of policies that SHOULD be attached (from shared_iam_policy_arns)
+	// Build set of policies that SHOULD be attached: shared_iam_policy_arns plus
+	// this lambda's own iam_policy_arns from lambda_config.
 	desiredSet := make(map[string]bool)
 	for _, arn := range im.config.SharedIamPolicyArns {
+		desiredSet[arn] = true
+	}
+	for _, arn := range perLambdaArns {
 		desiredSet[arn] = true
 	}
 

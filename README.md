@@ -538,7 +538,7 @@ Recommended for dev/uat/staging. Disable in production for security.
 The provider reconciles IAM state on every apply:
 
 - Shared policies (`shared_iam_policy_arns`) are attached/detached across all Lambda roles
-- Per-lambda policies (`iam_policy_arns` in lambda_config) are attached to individual roles
+- Per-lambda policies (`iam_policy_arns` in lambda_config) are attached to individual roles when the Lambda is created and re-attached on every apply; they are never detached as "stale" by shared-policy reconciliation
 - Orphaned IAM roles from previous provider versions are discovered and cleaned up
 - Stale policies are detached by querying AWS directly (not relying on Terraform state)
 

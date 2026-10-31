@@ -172,6 +172,14 @@ func (pm *ParallelManager) createSingleLambda(
 		return result
 	}
 
+	// Attach this lambda's own iam_policy_arns from lambda_config. Previously only
+	// the post-update reconcile pass did this, so a lambda created here (e.g. a
+	// second `function :pay_webhooks` in routes.rb) never received them.
+	if err := iamManager.AttachPerLambdaIamPolicies(ctx, roleName, lambdaName, lambdaConfig); err != nil {
+		result.Error = fmt.Errorf("failed to attach per-lambda IAM policies to role %s: %w", roleName, err)
+		return result
+	}
+
 	// Attach VPC execution policy if this lambda has vpc_config
 	if extractVpcConfig(lambdaConfig, lambdaName) != nil {
 		if err := iamManager.AttachVpcExecutionPolicy(ctx, roleName); err != nil {
@@ -525,8 +533,10 @@ func (pm *ParallelManager) updateSingleLambda(
 		if iamManager != nil {
 			roleName := fmt.Sprintf("%s-%s-%s-lambda-role", pm.config.AppName, pm.config.Environment, lambdaName)
 
-			// Detach stale policies first to stay within the 10-policy-per-role AWS limit
-			if err := iamManager.ReconcileSharedIamPolicies(ctx, roleName); err != nil {
+			// Detach stale policies first to stay within the 10-policy-per-role AWS limit.
+			// Pass this lambda's own iam_policy_arns so they are kept, not treated as stale.
+			perLambdaArns := extractPerLambdaIamPolicyArns(lambdaConfig, lambdaName)
+			if err := iamManager.ReconcileIamPolicies(ctx, roleName, perLambdaArns); err != nil {
 				utils.Warn(ctx, "Failed to reconcile shared IAM policies before attach", map[string]interface{}{
 					"lambda": lambdaName,
 					"error":  err.Error(),
@@ -535,6 +545,11 @@ func (pm *ParallelManager) updateSingleLambda(
 
 			if err := iamManager.AttachSharedIamPolicies(ctx, roleName); err != nil {
 				result.Error = fmt.Errorf("failed to attach shared IAM policies during update for %s: %w", lambdaName, err)
+				return result
+			}
+
+			if err := iamManager.AttachPerLambdaIamPolicies(ctx, roleName, lambdaName, lambdaConfig); err != nil {
+				result.Error = fmt.Errorf("failed to attach per-lambda IAM policies during update for %s: %w", lambdaName, err)
 				return result
 			}
 		}
