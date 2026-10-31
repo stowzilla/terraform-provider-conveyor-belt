@@ -392,6 +392,34 @@ func (im *IAMManager) ReconcileIamPolicies(ctx context.Context, roleName string,
 	return lastErr
 }
 
+// ListAttachedPolicyArns returns the ARNs of the managed policies currently
+// attached to roleName. Used by Read to detect IAM policy drift (a role missing
+// one of its shared_iam_policy_arns or per-lambda iam_policy_arns) without
+// mutating anything. Returns an error if the role does not exist.
+func (im *IAMManager) ListAttachedPolicyArns(ctx context.Context, roleName string) ([]string, error) {
+	listInput := &iam.ListAttachedRolePoliciesInput{
+		RoleName: aws.String(roleName),
+	}
+
+	var listOutput *iam.ListAttachedRolePoliciesOutput
+	err := retryOnThrottle(ctx, fmt.Sprintf("list policies on %s", roleName), 5, func() error {
+		var err error
+		listOutput, err = im.client.ListAttachedRolePolicies(ctx, listInput)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list attached policies for role %s: %w", roleName, err)
+	}
+
+	arns := make([]string, 0, len(listOutput.AttachedPolicies))
+	for _, attached := range listOutput.AttachedPolicies {
+		if arn := aws.ToString(attached.PolicyArn); arn != "" {
+			arns = append(arns, arn)
+		}
+	}
+	return arns, nil
+}
+
 // ReconcileOrphanedRoles finds all IAM roles matching the dispatcher naming pattern
 // (including orphaned roles with random suffixes from previous provider versions)
 // and reconciles shared IAM policies on them. This ensures that when shared_iam_policy_arns

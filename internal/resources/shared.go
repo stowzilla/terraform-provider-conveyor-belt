@@ -190,6 +190,46 @@ func detectRuntimeDrift(results []LambdaStateResult, expectedRuntime string) []s
 	return drifted
 }
 
+// desiredIamPolicyArns returns the managed policy ARNs that must be attached to
+// lambdaName's execution role: shared_iam_policy_arns plus the lambda's own
+// iam_policy_arns from lambda_config, de-duplicated and sorted. Returns nil when
+// the lambda has no managed policies to check.
+func desiredIamPolicyArns(lambdaConfig map[string]interface{}, lambdaName string, sharedIamPolicyArns []string) []string {
+	seen := make(map[string]bool)
+	var desired []string
+	add := func(arn string) {
+		if arn == "" || seen[arn] {
+			return
+		}
+		seen[arn] = true
+		desired = append(desired, arn)
+	}
+	for _, arn := range sharedIamPolicyArns {
+		add(arn)
+	}
+	for _, arn := range extractPerLambdaIamPolicyArns(lambdaConfig, lambdaName) {
+		add(arn)
+	}
+	sort.Strings(desired)
+	return desired
+}
+
+// missingIamPolicyArns returns the entries of desired that are not present in
+// attached, preserving the order of desired.
+func missingIamPolicyArns(desired, attached []string) []string {
+	attachedSet := make(map[string]bool, len(attached))
+	for _, arn := range attached {
+		attachedSet[arn] = true
+	}
+	var missing []string
+	for _, arn := range desired {
+		if !attachedSet[arn] {
+			missing = append(missing, arn)
+		}
+	}
+	return missing
+}
+
 // GetCORSOriginForConfig returns the CORS origin for DispatcherConfig
 func GetCORSOriginForConfig(config *DispatcherConfig) string {
 	if len(config.FrontendUrls) == 0 {
