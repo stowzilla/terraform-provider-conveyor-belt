@@ -2327,7 +2327,26 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 		}
 	}
 
-	if envVarDriftDetected || len(runtimeDrifted) > 0 {
+	// Detect IAM policy drift: a deployed Lambda's execution role may be missing
+	// one of its shared_iam_policy_arns or per-lambda iam_policy_arns (e.g. the
+	// function was created by a provider version that never attached them, or a
+	// policy was detached out of band). The Update() reconcile would re-attach
+	// them, but Terraform only calls Update when the plan has a diff, so with no
+	// config change the missing policies were invisible forever. Clear the
+	// lambda's config and combined hashes so Plan reports it under "Lambdas to
+	// UPDATE" and Update runs the IAM reconcile for it.
+	iamPolicyDrifted := parallelManager.DetectIamPolicyDrift(ctx, lambdaStateResults, lambdaConfig, r.iamManager)
+	if len(iamPolicyDrifted) > 0 {
+		for _, action := range iamPolicyDrifted {
+			delete(oldConfigHashes, action)
+			delete(oldLambdaHashes, action)
+		}
+		utils.Info(ctx, "IAM policy drift detected, Lambda roles will be reconciled on next apply", map[string]interface{}{
+			"lambdas": iamPolicyDrifted,
+		})
+	}
+
+	if envVarDriftDetected || len(runtimeDrifted) > 0 || len(iamPolicyDrifted) > 0 {
 		// Write updated hashes back to state
 		if len(oldConfigHashes) > 0 {
 			chMap, d := types.MapValueFrom(ctx, types.StringType, oldConfigHashes)

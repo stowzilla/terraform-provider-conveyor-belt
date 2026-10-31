@@ -539,6 +539,7 @@ The provider reconciles IAM state on every apply:
 
 - Shared policies (`shared_iam_policy_arns`) are attached/detached across all Lambda roles
 - Per-lambda policies (`iam_policy_arns` in lambda_config) are attached to individual roles when the Lambda is created and re-attached on every apply; they are never detached as "stale" by shared-policy reconciliation
+- Missing policies are detected as drift: on every refresh the provider lists each role's attached managed policies and, if a shared or per-lambda policy ARN is absent, marks that Lambda for update so the next apply re-attaches it (no config change required)
 - Orphaned IAM roles from previous provider versions are discovered and cleaned up
 - Stale policies are detached by querying AWS directly (not relying on Terraform state)
 

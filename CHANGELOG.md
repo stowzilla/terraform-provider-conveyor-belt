@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.18] - 2026-10-31
+
+### Fixed
+
+- **An existing Lambda whose role is missing its `iam_policy_arns` (or `shared_iam_policy_arns`) is now reported as drift** — 0.0.17 made the `Update()` IAM reconcile always re-attach per-lambda `iam_policy_arns`, but Terraform only calls `Update()` when the plan has a diff. A function deployed by an earlier provider version (e.g. `pay_webhooks` on Posh Nosh dev) had its config hash already in state, so `belt deploy` produced "No changes" and the reconcile never ran; the role stayed without its policies indefinitely. `Read()` now lists each role's attached managed policies (one `ListAttachedRolePolicies` per lambda that declares any, in parallel) and compares them with the desired set. When a desired ARN is missing it clears that lambda's config and combined hashes in state, so the next plan shows it under "Lambdas to UPDATE" and apply re-attaches the policies. Lambdas with no managed policies to check cost no extra IAM calls; a role that fails to list is logged and skipped rather than flagged. (Fizzy #1721)
+
 ## [0.0.17] - 2026-10-31
 
 ### Fixed

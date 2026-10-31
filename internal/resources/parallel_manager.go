@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1598,6 +1599,107 @@ type LambdaStateResult struct {
 	LastModified string
 	EnvVars      map[string]string // Actual env vars from AWS for drift detection
 	Error        error
+}
+
+// RolePolicyStateResult is the result of reading the managed policies attached
+// to one Lambda's execution role from AWS.
+type RolePolicyStateResult struct {
+	Action             string
+	RoleName           string
+	AttachedPolicyArns []string
+	Error              error
+}
+
+// ReadRolePoliciesInParallel lists the managed policies attached to each lambda's
+// execution role concurrently. Used by Read for IAM policy drift detection.
+func (pm *ParallelManager) ReadRolePoliciesInParallel(
+	ctx context.Context,
+	lambdas []string,
+	iamManager *IAMManager,
+) []RolePolicyStateResult {
+	results := make([]RolePolicyStateResult, 0, len(lambdas))
+	resultChan := make(chan RolePolicyStateResult, len(lambdas))
+
+	sem := make(chan struct{}, pm.concurrency)
+
+	var wg sync.WaitGroup
+	for _, lambdaName := range lambdas {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			roleName := fmt.Sprintf("%s-%s-%s-lambda-role", pm.config.AppName, pm.config.Environment, name)
+			result := RolePolicyStateResult{Action: name, RoleName: roleName}
+			result.AttachedPolicyArns, result.Error = iamManager.ListAttachedPolicyArns(ctx, roleName)
+			resultChan <- result
+		}(lambdaName)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	for result := range resultChan {
+		results = append(results, result)
+	}
+	return results
+}
+
+// DetectIamPolicyDrift returns the actions of existing Lambdas whose execution
+// role is missing one or more of its desired managed policies (shared_iam_policy_arns
+// plus the lambda's own iam_policy_arns from lambda_config). Only lambdas that
+// exist, read successfully, and declare at least one managed policy are checked,
+// so lambdas with nothing to verify cost no IAM calls. A role that fails to list
+// (including NoSuchEntity) is logged and skipped rather than reported as drift.
+func (pm *ParallelManager) DetectIamPolicyDrift(
+	ctx context.Context,
+	results []LambdaStateResult,
+	lambdaConfig map[string]interface{},
+	iamManager *IAMManager,
+) []string {
+	desiredByLambda := make(map[string][]string)
+	var toCheck []string
+	for _, result := range results {
+		if !result.Exists || result.Error != nil {
+			continue
+		}
+		desired := desiredIamPolicyArns(lambdaConfig, result.Action, pm.config.SharedIamPolicyArns)
+		if len(desired) == 0 {
+			continue
+		}
+		desiredByLambda[result.Action] = desired
+		toCheck = append(toCheck, result.Action)
+	}
+	if len(toCheck) == 0 {
+		return nil
+	}
+
+	var drifted []string
+	for _, roleResult := range pm.ReadRolePoliciesInParallel(ctx, toCheck, iamManager) {
+		if roleResult.Error != nil {
+			utils.Warn(ctx, "Failed to read attached role policies for IAM drift detection — skipping", map[string]interface{}{
+				"lambda":    roleResult.Action,
+				"role_name": roleResult.RoleName,
+				"error":     roleResult.Error.Error(),
+			})
+			continue
+		}
+		missing := missingIamPolicyArns(desiredByLambda[roleResult.Action], roleResult.AttachedPolicyArns)
+		if len(missing) == 0 {
+			continue
+		}
+		utils.Warn(ctx, "IAM policy drift detected — role is missing desired managed policies", map[string]interface{}{
+			"lambda":       roleResult.Action,
+			"role_name":    roleResult.RoleName,
+			"missing_arns": missing,
+		})
+		drifted = append(drifted, roleResult.Action)
+	}
+	sort.Strings(drifted)
+	return drifted
 }
 
 // GatewayStateResult represents the result of reading Gateway state from AWS
