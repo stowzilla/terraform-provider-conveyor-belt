@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.17] - 2026-10-31
+
+### Fixed
+
+- **Per-lambda `iam_policy_arns` are now attached to every Lambda, not just the ones that happen to be reconciled** — A function's `iam_policy_arns` (from `config/lambda/<fn>.yml` or the HCL `lambda_config` map) were only attached in the post-update IAM reconcile pass, which runs for lambdas whose config hash changed or that declare `dynamodb_tables`/`sqs_triggers`. The Lambda *create* path never attached them, so a second function declared with `function :pay_webhooks do … end` came up with only the basic execution role plus the generated inline policies, and nothing ever revisited it because its config hash never changed again. Worse, the config-update path and the reconcile pass called `ReconcileSharedIamPolicies`, which detaches any customer-managed policy that is not in `shared_iam_policy_arns`, so a per-lambda policy that *was* attached could be stripped on the next config change. Three changes: the create path now attaches per-lambda policies right after the shared ones; reconciliation treats a lambda's own `iam_policy_arns` as desired (new `ReconcileIamPolicies`) so they are never detached as stale; and lambdas that declare `iam_policy_arns` are always included in the per-apply IAM reconcile, so existing deployments catch up on their next `belt deploy` with no config change needed. (Fizzy #1717)
+
 ## [0.0.16] - 2026-10-23
 
 ### Fixed

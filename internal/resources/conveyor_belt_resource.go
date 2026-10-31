@@ -2801,7 +2801,8 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	// Reconcile IAM policies for lambdas that were updated or have config changes.
-	// Newly created lambdas already had their IAM set up during CreateLambdasInParallel.
+	// Newly created lambdas already had their IAM (shared + per-lambda policies,
+	// DynamoDB/S3/SES/SQS inline policies) set up during CreateLambdasInParallel.
 	// The early detach pass above already handled removing stale shared policies.
 	// Runs in parallel to reduce wall-clock time.
 	{
@@ -2841,6 +2842,14 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 			// PutRolePolicy is idempotent so this is safe to run on every apply.
 			if len(extractSQSTriggers(lambdaConfig, lambdaName)) > 0 {
 				lambdasToReconcile = append(lambdasToReconcile, lambdaName)
+				continue
+			}
+			// Also reconcile lambdas that declare per-lambda iam_policy_arns. Lambdas
+			// created before the create path attached these never got them, and their
+			// config hash hasn't changed since, so this is the only way they catch up.
+			// AttachRolePolicy is idempotent so this is safe to run on every apply.
+			if len(extractPerLambdaIamPolicyArns(lambdaConfig, lambdaName)) > 0 {
+				lambdasToReconcile = append(lambdasToReconcile, lambdaName)
 			}
 		}
 
@@ -2867,9 +2876,12 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 
 				roleName := fmt.Sprintf("%s-%s-%s-lambda-role", config.AppName, config.Environment, ln)
 				lambdaRoutes := filterRoutesByLambda(routes, ln)
+				perLambdaArns := extractPerLambdaIamPolicyArns(lambdaConfig, ln)
 
-				// Detach stale policies first to stay within the 10-policy-per-role AWS limit
-				if err := r.iamManager.ReconcileSharedIamPolicies(ctx, roleName); err != nil {
+				// Detach stale policies first to stay within the 10-policy-per-role AWS limit.
+				// This lambda's own iam_policy_arns are part of the desired set, so they
+				// are never detached here only to be re-attached below.
+				if err := r.iamManager.ReconcileIamPolicies(ctx, roleName, perLambdaArns); err != nil {
 					utils.Warn(ctx, "Failed to reconcile shared IAM policies before attach", map[string]interface{}{
 						"lambda": ln,
 						"error":  err.Error(),
@@ -2884,13 +2896,11 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 				}
 
 				// Attach per-lambda IAM policies from lambda_config
-				if perLambdaArns := extractPerLambdaIamPolicyArns(lambdaConfig, ln); len(perLambdaArns) > 0 {
-					if err := r.iamManager.AttachPolicyArns(ctx, roleName, perLambdaArns); err != nil {
-						iamErrMu.Lock()
-						iamErrors = append(iamErrors, fmt.Sprintf("lambda %s per-lambda policy: %s", ln, err.Error()))
-						iamErrMu.Unlock()
-						return
-					}
+				if err := r.iamManager.AttachPerLambdaIamPolicies(ctx, roleName, ln, lambdaConfig); err != nil {
+					iamErrMu.Lock()
+					iamErrors = append(iamErrors, fmt.Sprintf("lambda %s per-lambda policy: %s", ln, err.Error()))
+					iamErrMu.Unlock()
+					return
 				}
 				if err := r.iamManager.CreateDynamoDBPoliciesForAction(ctx, ln, lambdaRoutes, roleName); err != nil {
 					utils.Warn(ctx, "Failed to reconcile DynamoDB policies", map[string]interface{}{
