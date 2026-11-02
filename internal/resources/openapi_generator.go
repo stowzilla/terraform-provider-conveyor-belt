@@ -430,8 +430,10 @@ func (g *OpenAPIGenerator) buildCorsOptions(routes []utils.Route, path string) m
 						"method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 						"method.response.header.Access-Control-Max-Age":       "'86400'",
 					},
+					// With several frontend_urls the template overrides Allow-Origin
+					// with the request's Origin when it is in the list (never "*").
 					"responseTemplates": map[string]string{
-						"application/json": "{}",
+						"application/json": corsOriginOverrideTemplate(g.config),
 					},
 				},
 			},
@@ -441,10 +443,8 @@ func (g *OpenAPIGenerator) buildCorsOptions(routes []utils.Route, path string) m
 
 // buildGatewayResponses creates x-amazon-apigateway-gateway-responses.
 func (g *OpenAPIGenerator) buildGatewayResponses() map[string]interface{} {
-	frontendUrl := GetCORSOriginForConfig(g.config)
-
 	responseParams := map[string]string{
-		"gatewayresponse.header.Access-Control-Allow-Origin":  "'" + frontendUrl + "'",
+		"gatewayresponse.header.Access-Control-Allow-Origin":  corsGatewayResponseOrigin(g.config),
 		"gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 		"gatewayresponse.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,PATCH,OPTIONS'",
 	}
@@ -463,6 +463,9 @@ func (g *OpenAPIGenerator) buildGatewayResponses() map[string]interface{} {
 		{key: "MISSING_AUTHENTICATION_TOKEN", statusCode: "404", template: g.gatewayResponseTemplate("MISSING_AUTHENTICATION_TOKEN")},
 		{key: "RESOURCE_NOT_FOUND", template: g.gatewayResponseTemplate("RESOURCE_NOT_FOUND")},
 		{key: "BAD_REQUEST_BODY", template: g.gatewayResponseTemplate("BAD_REQUEST_BODY")},
+		// 429s get an honest body instead of DEFAULT_4XX's "unsupported HTTP method" hint
+		{key: "THROTTLED", statusCode: "429", template: g.gatewayResponseTemplate("THROTTLED")},
+		{key: "QUOTA_EXCEEDED", statusCode: "429", template: g.gatewayResponseTemplate("QUOTA_EXCEEDED")},
 	}
 
 	responses := make(map[string]interface{})
@@ -506,6 +509,10 @@ func (g *OpenAPIGenerator) friendlyTemplate(responseType string) string {
 		return fmt.Sprintf(`{"error":"Access Denied","message":"You don't have permission to access this resource.","details":$context.error.messageString,"environment":"%s"}`, env)
 	case "DEFAULT_4XX":
 		return fmt.Sprintf(`{"error":"Client Error","message":"The request could not be processed. This may be due to an unsupported HTTP method, invalid headers, or malformed request.","path":"$context.resourcePath","method":"$context.httpMethod","environment":"%s","hint":"Check that you're using the correct HTTP method (GET, POST, PUT, DELETE) for this route. If the route exists, try a different method."}`, env)
+	case "THROTTLED":
+		return fmt.Sprintf(`{"error":"Too Many Requests","message":"This route is rate limited and the limit was exceeded. Wait a moment and try again.","path":"$context.resourcePath","method":"$context.httpMethod","environment":"%s","hint":"Throttle limits come from the stage throttle or the route's throttle: { rate, burst } setting."}`, env)
+	case "QUOTA_EXCEEDED":
+		return fmt.Sprintf(`{"error":"Too Many Requests","message":"The usage quota for this API has been exhausted for the current period.","path":"$context.resourcePath","method":"$context.httpMethod","environment":"%s"}`, env)
 	default:
 		return fmt.Sprintf(`{"error":"$context.error.responseType","message":$context.error.messageString,"environment":"%s"}`, env)
 	}
@@ -523,6 +530,8 @@ func (g *OpenAPIGenerator) productionTemplate(responseType string) string {
 		return `{"error":"Forbidden","message":"Access denied"}`
 	case "DEFAULT_4XX":
 		return `{"error":"Bad Request","message":"The request could not be processed"}`
+	case "THROTTLED", "QUOTA_EXCEEDED":
+		return `{"error":"Too Many Requests","message":"Rate limit exceeded. Please wait a moment and try again."}`
 	default:
 		return `{"error":"Error","message":"An error occurred processing your request"}`
 	}

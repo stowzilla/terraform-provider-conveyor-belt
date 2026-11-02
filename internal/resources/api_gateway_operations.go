@@ -527,8 +527,6 @@ func (ops *ApiGatewayOperations) ConfigureGatewayResponses(ctx context.Context, 
 		"friendly_errors": config.FriendlyErrors,
 	})
 
-	frontendUrl := GetCORSOriginForConfig(config)
-
 	// Response types that need CORS headers
 	responseTypes := []apigatewayTypes.GatewayResponseType{
 		apigatewayTypes.GatewayResponseTypeUnauthorized,
@@ -542,7 +540,7 @@ func (ops *ApiGatewayOperations) ConfigureGatewayResponses(ctx context.Context, 
 
 	// CORS headers to add to all error responses
 	responseParameters := map[string]string{
-		"gatewayresponse.header.Access-Control-Allow-Origin":  fmt.Sprintf("'%s'", frontendUrl),
+		"gatewayresponse.header.Access-Control-Allow-Origin":  corsGatewayResponseOrigin(config),
 		"gatewayresponse.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Event-Subdomain'",
 		"gatewayresponse.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,PATCH,OPTIONS'",
 	}
@@ -666,7 +664,7 @@ func (ops *ApiGatewayOperations) RepairCorsHeaders(ctx context.Context, apiId st
 				"method.response.header.Access-Control-Max-Age":       "'86400'",
 			},
 			ResponseTemplates: map[string]string{
-				"application/json": `{}`,
+				"application/json": corsOriginOverrideTemplate(config),
 			},
 		})
 		if putErr != nil {

@@ -36,9 +36,9 @@ func testRoutes() []utils.Route {
 
 func testLambdaARNs() map[string]string {
 	return map[string]string{
-		"customer":    "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-customer",
-		"ops":         "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-ops",
-		"onboarding":  "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-onboarding",
+		"customer":   "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-customer",
+		"ops":        "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-ops",
+		"onboarding": "arn:aws:lambda:us-east-1:123456789012:function:myapp-dev-onboarding",
 	}
 }
 
@@ -444,16 +444,31 @@ func TestGenerateSpec_MultipleFrontendUrls(t *testing.T) {
 	gen := NewOpenAPIGenerator(config)
 	spec, _ := gen.GenerateSpec(context.Background(), "ops", testRoutes(), testLambdaARNs(), nil)
 
-	// Multiple URLs → wildcard
+	// Multiple URLs → first origin as the static fallback, never "*"; the mock
+	// integration's response template echoes a listed Origin per request.
 	healthPath := spec.Paths["/health"]
 	optionsOp := healthPath["options"].(map[string]interface{})
 	integration := optionsOp["x-amazon-apigateway-integration"].(map[string]interface{})
 	responses := integration["responses"].(map[string]interface{})
 	defaultResp := responses["default"].(map[string]interface{})
 	respParams := defaultResp["responseParameters"].(map[string]string)
-	if respParams["method.response.header.Access-Control-Allow-Origin"] != "'*'" {
-		t.Errorf("expected wildcard origin for multiple frontend URLs, got %s",
+	if respParams["method.response.header.Access-Control-Allow-Origin"] != "'https://app.example.com'" {
+		t.Errorf("expected first frontend URL as static origin for multiple frontend URLs, got %s",
 			respParams["method.response.header.Access-Control-Allow-Origin"])
+	}
+	tmpl := defaultResp["responseTemplates"].(map[string]string)["application/json"]
+	for _, want := range []string{"'https://app.example.com'", "'https://admin.example.com'", "$context.responseOverride.header.Access-Control-Allow-Origin"} {
+		if !strings.Contains(tmpl, want) {
+			t.Errorf("expected OPTIONS response template to contain %s, got:\n%s", want, tmpl)
+		}
+	}
+
+	// Gateway responses reflect the request Origin instead of "*"
+	gw := spec.GatewayResponses["DEFAULT_4XX"].(map[string]interface{})
+	gwParams := gw["responseParameters"].(map[string]string)
+	if gwParams["gatewayresponse.header.Access-Control-Allow-Origin"] != "method.request.header.Origin" {
+		t.Errorf("expected gateway responses to map Allow-Origin from the request Origin, got %s",
+			gwParams["gatewayresponse.header.Access-Control-Allow-Origin"])
 	}
 }
 

@@ -337,7 +337,7 @@ bundle clean --force`,
 	output, err := dockerCmd.CombinedOutput()
 	if err != nil {
 		os.RemoveAll(sharedBuildDir)
-		return "", fmt.Errorf("failed to build gems with Docker: %w\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("failed to build gems with Docker: %w%s\nOutput: %s", err, dockerBuildHint(string(output)), string(output))
 	}
 
 	// Strip vendor fat from the shared gem build
@@ -345,6 +345,20 @@ bundle clean --force`,
 
 	utils.Info(ctx, "Successfully built shared gems with Docker", nil)
 	return sharedBuildDir, nil
+}
+
+// dockerBuildHint turns a known Docker failure signature into a one-line hint
+// placed ahead of the (often 200-line) bundler output. "Operation not
+// permitted" while installing a native extension is Docker Desktop's file
+// sharing in a bad state, not the Gemfile; restarting Docker fixes it.
+func dockerBuildHint(output string) string {
+	if strings.Contains(output, "Operation not permitted") {
+		return "\nHint: 'Operation not permitted' inside the build container is usually Docker Desktop file-sharing state, not your Gemfile — restart Docker Desktop and re-run the apply."
+	}
+	if strings.Contains(output, "Cannot connect to the Docker daemon") || strings.Contains(output, "docker daemon is not running") {
+		return "\nHint: Docker is not running — start Docker Desktop (`open -a Docker`) and wait for `docker info` to succeed."
+	}
+	return ""
 }
 
 // cacheSharedDirs copies shared directories once to a temp location for reuse
@@ -595,7 +609,7 @@ bundle clean --force`,
 			"output": string(output),
 			"lambda": lambda,
 		})
-		return nil, fmt.Errorf("failed to build gems with Docker: %w\nOutput: %s", err, string(output))
+		return nil, fmt.Errorf("failed to build gems with Docker: %w%s\nOutput: %s", err, dockerBuildHint(string(output)), string(output))
 	}
 
 	utils.Info(ctx, "Successfully built gems with Docker", map[string]interface{}{

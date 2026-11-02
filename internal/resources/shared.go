@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/aws-sdk-go-v2/service/wafv2"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"terraform-provider-conveyor-belt/internal/utils"
@@ -63,6 +64,14 @@ type DispatcherConfig struct {
 	// If <= 0, defaults to DockerBuildConcurrency or CPU count.
 	// Requirements: 1.3, 3.4
 	RouteProcessingConcurrency int
+	// StageThrottle is the stage-level default throttle ("*/*" method settings)
+	// applied to every gateway. nil = account default (10k rps / 5k burst).
+	StageThrottle *ThrottleSettings
+	// WafWebAclArn is a WAFv2 (REGIONAL) web ACL associated with every gateway stage.
+	WafWebAclArn string
+	// PreviousWafWebAclArn is the ARN from prior state; used only to detach an
+	// ACL the provider attached when waf_web_acl_arn is removed.
+	PreviousWafWebAclArn string
 }
 
 // AlarmConfig represents CloudWatch Alarm configuration
@@ -230,16 +239,54 @@ func missingIamPolicyArns(desired, attached []string) []string {
 	return missing
 }
 
-// GetCORSOriginForConfig returns the CORS origin for DispatcherConfig
+// GetCORSOriginForConfig returns the static CORS origin for DispatcherConfig.
+// With several frontend_urls this is the first one — the fallback when a
+// request's Origin is not in the list. Never "*": the OPTIONS mock and gateway
+// responses pick the matching origin per request (see corsOriginOverrideTemplate
+// and corsGatewayResponseOrigin).
 func GetCORSOriginForConfig(config *DispatcherConfig) string {
 	if len(config.FrontendUrls) == 0 {
 		return "http://localhost:3000" // Default for development
 	}
-	if len(config.FrontendUrls) == 1 {
-		return config.FrontendUrls[0]
+	return config.FrontendUrls[0]
+}
+
+// corsOriginOverrideTemplate returns the VTL mapping template for a mock
+// OPTIONS integration response. With more than one frontend URL it echoes the
+// request's Origin header when it is in frontend_urls (via
+// $context.responseOverride), otherwise the static first origin stands. With a
+// single URL the static header is already exact and the template is just "{}".
+func corsOriginOverrideTemplate(config *DispatcherConfig) string {
+	if len(config.FrontendUrls) <= 1 {
+		return "{}"
 	}
-	// For multiple origins, use wildcard
-	return "*"
+	var b strings.Builder
+	b.WriteString("#set($origin = $input.params().header.get('Origin'))\n")
+	b.WriteString("#set($allowed = [")
+	for i, u := range config.FrontendUrls {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("'" + strings.ReplaceAll(u, "'", "") + "'")
+	}
+	b.WriteString("])\n")
+	b.WriteString("#if($origin && $allowed.contains($origin))\n")
+	b.WriteString("#set($context.responseOverride.header.Access-Control-Allow-Origin = $origin)\n")
+	b.WriteString("#end\n{}")
+	return b.String()
+}
+
+// corsGatewayResponseOrigin returns the Access-Control-Allow-Origin mapping for
+// gateway responses (401/403/404/429/5xx produced before any integration runs).
+// Gateway responses cannot run a mapping template against the Origin header,
+// so with several frontend_urls the header reflects the request's Origin —
+// functionally what "*" gave before (these responses never carry
+// Access-Control-Allow-Credentials) but without advertising a wildcard.
+func corsGatewayResponseOrigin(config *DispatcherConfig) string {
+	if len(config.FrontendUrls) > 1 {
+		return "method.request.header.Origin"
+	}
+	return "'" + GetCORSOriginForConfig(config) + "'"
 }
 
 // buildResourceTags creates a map of tags for AWS resources
@@ -270,6 +317,7 @@ type ResourceClients struct {
 	CloudWatch     *cloudwatch.Client
 	SNS            *sns.Client
 	SQS            *sqs.Client
+	WAF            *wafv2.Client
 }
 
 // RouteData represents the JSON structure returned by `belt routes -f json`
@@ -285,6 +333,10 @@ type RouteData struct {
 		RequestModel    string   `json:"request_model"`
 		ResponseModel   string   `json:"response_model"`
 		ResponseContext string   `json:"response_context"`
+		Throttle        *struct {
+			Rate  float64 `json:"rate"`
+			Burst int64   `json:"burst"`
+		} `json:"throttle,omitempty"`
 	} `json:"routes"`
 	Models []struct {
 		Name        string                         `json:"name"`
@@ -312,6 +364,7 @@ func initializeClients(ctx context.Context, config *DispatcherConfig) (*Resource
 		CloudWatch:     cloudwatch.NewFromConfig(awsConfig),
 		SNS:            sns.NewFromConfig(awsConfig),
 		SQS:            sqs.NewFromConfig(awsConfig),
+		WAF:            wafv2.NewFromConfig(awsConfig),
 	}, nil
 }
 
@@ -439,6 +492,9 @@ func executeBeltRoutesWithSchema(ctx context.Context, source, schemaPath string)
 			RequestModel:    route.RequestModel,
 			ResponseModel:   route.ResponseModel,
 			ResponseContext: route.ResponseContext,
+		}
+		if route.Throttle != nil && (route.Throttle.Rate > 0 || route.Throttle.Burst > 0) {
+			routes[i].Throttle = &utils.RouteThrottle{Rate: route.Throttle.Rate, Burst: route.Throttle.Burst}
 		}
 	}
 
@@ -583,28 +639,6 @@ func calculateGatewayHash(routes []utils.Route, configFingerprint string) (strin
 	return hash, nil
 }
 
-// hasPathGemsInProject checks whether the project's Gemfile.lock contains PATH
-// remote sections (development path: gems). When present, source hashes are
-// unstable because an external worktree can be modified between plan invocations.
-func hasPathGemsInProject(lambdaSourceDir string) bool {
-	// Check Gemfile.lock in sourceDir, then parent (project root)
-	candidates := []string{
-		filepath.Join(lambdaSourceDir, "Gemfile.lock"),
-		filepath.Join(filepath.Dir(lambdaSourceDir), "Gemfile.lock"),
-	}
-	for _, lockPath := range candidates {
-		content, err := os.ReadFile(lockPath)
-		if err != nil {
-			continue
-		}
-		sources := parsePathSources(string(content))
-		if len(sources) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // hashDirectoryContents recursively hashes all files in a directory
 func hashDirectoryContents(dirPath string) (string, error) {
 	hasher := sha256.New()
@@ -616,7 +650,15 @@ func hashDirectoryContents(dirPath string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
+		if info.IsDir() {
+			// Skip dot-directories (.git, .bundle, .conveyor-belt, ...) entirely —
+			// their contents are never Lambda source and churn on every command.
+			if path != dirPath && strings.HasPrefix(info.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		{
 			name := info.Name()
 			// Skip OS metadata, editor temp files, and other non-source artifacts
 			if name == ".DS_Store" ||
@@ -757,12 +799,14 @@ func calculateLambdaSourceHash(lambdaSourceDir, lambda string, sharedDirs []stri
 	}
 
 	// Hash PATH remotes from Gemfile.lock (absolute agent worktrees, relative
-	// path: gems). Source changes without a lockfile bump still rebuild.
+	// path: gems). Source changes without a lockfile bump still rebuild. The
+	// walk honors the remote's .gitignore and skips tmp/log/vendor/spec/etc so
+	// a clean checkout hashes the same on every plan (Fizzy #1756).
 	if lockContent, err := os.ReadFile(gemfileLockPath); err == nil {
 		projectRoot := filepath.Dir(gemfilePath)
 		for _, remote := range parsePathRemotes(string(lockContent), projectRoot) {
 			if info, err := os.Stat(remote); err == nil && info.IsDir() {
-				dirHash, err := hashDirectoryContents(remote)
+				dirHash, err := hashPathGemContents(remote)
 				if err == nil {
 					hasher.Write([]byte("path_gem:"))
 					hasher.Write([]byte(remote))
@@ -791,6 +835,7 @@ type lambdaConfigFields struct {
 	Memory              int64
 	SharedIamPolicyArns []string
 	IamPolicyArns       []string
+	Capacity            LambdaCapacity
 }
 
 // collectLambdaConfigFields extracts all configuration fields for a lambda from routes and lambda_config.
@@ -933,6 +978,7 @@ func collectLambdaConfigFields(routes []utils.Route, lambdaConfig map[string]int
 		Memory:              memory,
 		SharedIamPolicyArns: sortedSharedIamPolicyArns,
 		IamPolicyArns:       iamPolicyArns,
+		Capacity:            extractLambdaCapacity(lambdaConfig, lambdaName),
 	}
 }
 
@@ -964,6 +1010,9 @@ func calculateLambdaHash(routes []utils.Route, lambdaConfig map[string]interface
 		Memory              int64
 		SharedIamPolicyArns []string
 		IamPolicyArns       []string
+		// omitempty: unset values leave the hash identical to older releases.
+		ReservedConcurrency *int64 `json:",omitempty"`
+		EphemeralStorage    int64  `json:",omitempty"`
 	}{
 		Tables:              normalizeStringSlice(fields.Tables),
 		EnvVars:             stabilizeEnvVarsForHashing(fields.EnvVars),
@@ -979,6 +1028,8 @@ func calculateLambdaHash(routes []utils.Route, lambdaConfig map[string]interface
 		Memory:              fields.Memory,
 		SharedIamPolicyArns: fields.SharedIamPolicyArns,
 		IamPolicyArns:       normalizeStringSlice(fields.IamPolicyArns),
+		ReservedConcurrency: fields.Capacity.ReservedConcurrency,
+		EphemeralStorage:    fields.Capacity.EphemeralStorage,
 	}
 
 	combinedJSON, err := json.Marshal(combined)
@@ -1013,6 +1064,9 @@ func calculateLambdaConfigHash(routes []utils.Route, lambdaConfig map[string]int
 		Memory              int64
 		SharedIamPolicyArns []string
 		IamPolicyArns       []string
+		// omitempty: unset values leave the hash identical to older releases.
+		ReservedConcurrency *int64 `json:",omitempty"`
+		EphemeralStorage    int64  `json:",omitempty"`
 	}{
 		Tables:              normalizeStringSlice(fields.Tables),
 		EnvVars:             stabilizeEnvVarsForHashing(fields.EnvVars),
@@ -1029,6 +1083,8 @@ func calculateLambdaConfigHash(routes []utils.Route, lambdaConfig map[string]int
 		Memory:              fields.Memory,
 		SharedIamPolicyArns: fields.SharedIamPolicyArns,
 		IamPolicyArns:       normalizeStringSlice(fields.IamPolicyArns),
+		ReservedConcurrency: fields.Capacity.ReservedConcurrency,
+		EphemeralStorage:    fields.Capacity.EphemeralStorage,
 	}
 
 	configJSON, err := json.Marshal(configData)
@@ -1041,23 +1097,35 @@ func calculateLambdaConfigHash(routes []utils.Route, lambdaConfig map[string]int
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// calculateAllGatewayHashes returns a map of gateway name -> hash
-// Includes frontendUrls in the hash so CORS config changes trigger gateway updates
-func calculateAllGatewayHashes(routes []utils.Route, frontendUrls []string) (map[string]string, error) {
+// calculateAllGatewayHashes returns a map of gateway name -> hash.
+// Includes frontend_urls (CORS), the stage throttle, the WAF ACL, and the
+// effective per-route throttles so any of those changing triggers a gateway
+// update. Deployments that use none of the new knobs hash exactly as before.
+func calculateAllGatewayHashes(routes []utils.Route, inputs gatewayHashInputs) (map[string]string, error) {
 	gatewayGroups := utils.GroupByGateway(routes)
 	hashes := make(map[string]string)
 
 	// Build a config fingerprint from CORS-affecting attributes
-	var configFingerprint string
-	if len(frontendUrls) > 0 {
-		sorted := make([]string, len(frontendUrls))
-		copy(sorted, frontendUrls)
+	var baseFingerprint string
+	if len(inputs.FrontendUrls) > 0 {
+		sorted := make([]string, len(inputs.FrontendUrls))
+		copy(sorted, inputs.FrontendUrls)
 		sort.Strings(sorted)
 		fp, _ := json.Marshal(sorted)
-		configFingerprint = string(fp)
+		baseFingerprint = string(fp)
 	}
 
 	for gateway, gatewayRoutes := range gatewayGroups {
+		configFingerprint := baseFingerprint
+		routeThrottles := effectiveRouteThrottles(gatewayRoutes, inputs.LambdaConfig)
+		if inputs.StageThrottle != nil || inputs.WafWebAclArn != "" || len(routeThrottles) > 0 {
+			extra, _ := json.Marshal(struct {
+				StageThrottle  *ThrottleSettings
+				WafWebAclArn   string
+				RouteThrottles map[string]ThrottleSettings
+			}{inputs.StageThrottle, inputs.WafWebAclArn, routeThrottles})
+			configFingerprint += string(extra)
+		}
 		hash, err := calculateGatewayHash(gatewayRoutes, configFingerprint)
 		if err != nil {
 			return nil, fmt.Errorf("failed to hash gateway %s: %w", gateway, err)
