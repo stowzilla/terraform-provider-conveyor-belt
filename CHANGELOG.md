@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.19] - 2026-11-01
+
+### Fixed
+
+- **A new environment's Lambdas now get their `config/lambda/*.yml` settings on the first apply** — `Create()` built every function from `extractLambdaConfig(plan)`, which is only the HCL `lambda_config` map, and never used the YAML from `lambda_config_dir` that `buildConfigFromModel` had already merged in. A fresh environment (every new nested env, e.g. `belt generate environment fizzy-1580 dev`) therefore came up with only the built-in env vars (`APP_NAME`, `ENVIRONMENT`, table names, CORS): no YAML `env_vars` (`COGNITO_USER_POOL_ID`, bucket names, `ref()` values), no YAML `iam_policy_arns`, triggers or timeout/memory. The hashes Create stored were computed from the same partial config, so the *second* apply saw a diff and fixed it, which is why "deploy twice" was the workaround. `Create()` now uses the merged `config.LambdaConfig`, the same config `Update()` and `ModifyPlan()` use. `Read()` does too, so its env var and IAM drift checks compare against the YAML settings as well; an environment already deployed without them is flagged and repaired on its next apply. (Fizzy #1734)
+
 ## [0.0.18] - 2026-10-31
 
 ### Fixed

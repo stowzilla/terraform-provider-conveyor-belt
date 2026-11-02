@@ -1833,15 +1833,12 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 		"model_count": len(models),
 	})
 
-	// Step 2: Extract lambda_config
-	lambdaConfig, err := r.extractLambdaConfig(ctx, &plan)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Failed to extract lambda_config",
-			err.Error(),
-		)
-		return
-	}
+	// Step 2: Use the fully merged lambda_config from buildConfigFromModel —
+	// config/lambda/*.yml (lambda_config_dir) + TF lambda_config overrides, the
+	// same config Update and ModifyPlan use. Reading only the TF map here created
+	// a fresh environment's Lambdas without their YAML env_vars, iam_policy_arns
+	// and triggers until a second apply (Fizzy #1734).
+	lambdaConfig := config.LambdaConfig
 
 	// Step 3: Extract unique lambdas and gateways (including from source directory)
 	lambdas, gateways := r.extractResourcesWithSourceDir(routes, lambdaConfig, config.LambdaSourceDir)
@@ -2195,15 +2192,9 @@ func (r *dispatcherResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	// Extract lambda_config
-	lambdaConfig, err := r.extractLambdaConfig(ctx, &state)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Failed to extract lambda_config",
-			err.Error(),
-		)
-		return
-	}
+	// Use the fully merged lambda_config (YAML + TF overrides) so env var and
+	// IAM drift checks compare against everything Update would deploy.
+	lambdaConfig := config.LambdaConfig
 
 	// Extract unique lambdas and gateways from routes (including from source directory)
 	lambdas, gateways := r.extractResourcesWithSourceDir(routes, lambdaConfig, config.LambdaSourceDir)
