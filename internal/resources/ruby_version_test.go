@@ -85,7 +85,7 @@ func TestBuildUpdateFunctionConfigurationInputIncludesRuntime(t *testing.T) {
 		{"4.0", lambdaTypes.Runtime("ruby4.0")},
 	} {
 		cfg := &DispatcherConfig{RubyVersion: tc.rubyVersion}
-		input := buildUpdateFunctionConfigurationInput("app-dev-users_show", cfg, envVars, 30, 512, nil)
+		input := buildUpdateFunctionConfigurationInput("app-dev-users_show", cfg, envVars, 30, 512, nil, LambdaCapacity{})
 		if input.Runtime != tc.want {
 			t.Errorf("ruby_version %q: Runtime = %q, want %q", tc.rubyVersion, input.Runtime, tc.want)
 		}
@@ -102,7 +102,7 @@ func TestBuildUpdateFunctionConfigurationInputIncludesRuntime(t *testing.T) {
 
 	cfg := &DispatcherConfig{RubyVersion: "4.0", LambdaLayerArns: []string{"arn:aws:lambda:us-east-1:123:layer:x:1"}}
 	vpc := &VpcConfig{SubnetIds: []string{"subnet-1"}, SecurityGroupIds: []string{"sg-1"}}
-	input := buildUpdateFunctionConfigurationInput("fn", cfg, nil, 10, 128, vpc)
+	input := buildUpdateFunctionConfigurationInput("fn", cfg, nil, 10, 128, vpc, LambdaCapacity{})
 	if len(input.Layers) != 1 || input.VpcConfig == nil || input.VpcConfig.SubnetIds[0] != "subnet-1" {
 		t.Errorf("layers/VPC not propagated: %+v", input)
 	}

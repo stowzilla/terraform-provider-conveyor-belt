@@ -18,6 +18,16 @@ type Route struct {
 	RequestModel    string // Name of the request model (from contracts.rb)
 	ResponseModel   string // Name of the response model (from contracts.rb)
 	ResponseContext string // Explicit context override for response model; empty = use Gateway
+	// Throttle is an optional per-route API Gateway limit from routes.rb
+	// (`throttle: { rate:, burst: }`). omitempty keeps routes_json and the
+	// gateway hashes unchanged for routes that do not set it.
+	Throttle *RouteThrottle `json:"Throttle,omitempty"`
+}
+
+// RouteThrottle is a per-route token-bucket limit (requests/second + burst).
+type RouteThrottle struct {
+	Rate  float64 `json:"rate"`
+	Burst int64   `json:"burst"`
 }
 
 // ModelDefinition represents a JSON Schema model from contracts.rb

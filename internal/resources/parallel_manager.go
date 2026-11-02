@@ -231,12 +231,23 @@ func (pm *ParallelManager) createSingleLambda(
 	timeout, memory := pm.getTimeoutAndMemory(lambdaName, lambdaConfig)
 	vpcConfig := extractVpcConfig(lambdaConfig, lambdaName)
 
-	lambdaArn, err := pm.createLambdaFunction(ctx, functionName, roleArn, lambdaName, buildResult.ZipData, envVars, timeout, memory, vpcConfig)
+	capacity := extractLambdaCapacity(lambdaConfig, lambdaName)
+
+	lambdaArn, err := pm.createLambdaFunction(ctx, functionName, roleArn, lambdaName, buildResult.ZipData, envVars, timeout, memory, vpcConfig, capacity)
 	if err != nil {
 		// Rollback: delete IAM role
 		iamManager.DeleteLambdaRole(ctx, roleName, lambdaName)
 		cloudWatchManager.DeleteLambdaLogGroup(ctx, functionName)
 		result.Error = fmt.Errorf("failed to create Lambda function: %w", err)
+		return result
+	}
+
+	// reserved_concurrency is a separate API (PutFunctionConcurrency), not part of
+	// CreateFunction. A failure here is an error, not a warning: silently running a
+	// public route without its concurrency cap is the outcome this setting exists
+	// to prevent. The function stays in AWS and is adopted on the next apply.
+	if err := pm.applyReservedConcurrency(ctx, functionName, lambdaName, capacity); err != nil {
+		result.Error = err
 		return result
 	}
 
@@ -270,6 +281,7 @@ func (pm *ParallelManager) createLambdaFunction(
 	envVars map[string]string,
 	timeout, memory int64,
 	vpcConfig *VpcConfig,
+	capacity LambdaCapacity,
 ) (string, error) {
 	createInput := &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
@@ -286,6 +298,10 @@ func (pm *ParallelManager) createLambdaFunction(
 		Tags:       buildResourceTags(pm.config, "Lambda", functionName),
 		Timeout:    aws.Int32(int32(timeout)),
 		MemorySize: aws.Int32(int32(memory)),
+	}
+
+	if capacity.EphemeralStorage > 0 {
+		createInput.EphemeralStorage = &lambdaTypes.EphemeralStorage{Size: aws.Int32(int32(capacity.EphemeralStorage))}
 	}
 
 	// Attach Lambda Layers if specified
@@ -566,8 +582,17 @@ func (pm *ParallelManager) updateSingleLambda(
 		envVars := pm.buildEnvVars(lambdaName, routes, lambdaConfig)
 		timeout, memory := pm.getTimeoutAndMemory(lambdaName, lambdaConfig)
 		vpcConfig := extractVpcConfig(lambdaConfig, lambdaName)
+		capacity := extractLambdaCapacity(lambdaConfig, lambdaName)
 
-		updateConfigInput := buildUpdateFunctionConfigurationInput(functionName, pm.config, envVars, timeout, memory, vpcConfig)
+		// Concurrency is its own API and must not race the configuration update
+		// (ResourceConflictException while an update is in progress), so apply it
+		// first while the function is known to be idle.
+		if err := pm.applyReservedConcurrency(ctx, functionName, lambdaName, capacity); err != nil {
+			result.Error = err
+			return result
+		}
+
+		updateConfigInput := buildUpdateFunctionConfigurationInput(functionName, pm.config, envVars, timeout, memory, vpcConfig, capacity)
 
 		_, err := pm.clients.Lambda.UpdateFunctionConfiguration(ctx, updateConfigInput)
 		if err != nil {
@@ -679,15 +704,22 @@ func (pm *ParallelManager) updateSingleLambda(
 // request for an existing Lambda. Runtime is always set from the provider's
 // ruby_version so that changing ruby_version migrates existing functions
 // (previously only CreateFunction applied it).
-func buildUpdateFunctionConfigurationInput(functionName string, config *DispatcherConfig, envVars map[string]string, timeout, memory int64, vpcConfig *VpcConfig) *lambda.UpdateFunctionConfigurationInput {
+func buildUpdateFunctionConfigurationInput(functionName string, config *DispatcherConfig, envVars map[string]string, timeout, memory int64, vpcConfig *VpcConfig, capacity LambdaCapacity) *lambda.UpdateFunctionConfigurationInput {
+	// ephemeral_storage is always sent so removing the key reverts /tmp to the
+	// 512 MB default instead of leaving a larger size behind.
+	ephemeral := capacity.EphemeralStorage
+	if ephemeral <= 0 {
+		ephemeral = defaultEphemeralStorageMB
+	}
 	input := &lambda.UpdateFunctionConfigurationInput{
 		FunctionName: aws.String(functionName),
 		Runtime:      lambdaTypes.Runtime(config.GetLambdaRuntime()),
 		Environment: &lambdaTypes.Environment{
 			Variables: envVars,
 		},
-		Timeout:    aws.Int32(int32(timeout)),
-		MemorySize: aws.Int32(int32(memory)),
+		Timeout:          aws.Int32(int32(timeout)),
+		MemorySize:       aws.Int32(int32(memory)),
+		EphemeralStorage: &lambdaTypes.EphemeralStorage{Size: aws.Int32(int32(ephemeral))},
 	}
 
 	if len(config.LambdaLayerArns) > 0 {
@@ -702,6 +734,34 @@ func buildUpdateFunctionConfigurationInput(functionName string, config *Dispatch
 	}
 
 	return input
+}
+
+// applyReservedConcurrency sets or clears a function's reserved concurrency to
+// match config/lambda/<fn>.yml. Absent key → DeleteFunctionConcurrency (no
+// reservation), which is a no-op when none is set, so removing the key from
+// YAML releases the reservation on the next config update.
+func (pm *ParallelManager) applyReservedConcurrency(ctx context.Context, functionName, lambdaName string, capacity LambdaCapacity) error {
+	if capacity.ReservedConcurrency == nil {
+		if _, err := pm.clients.Lambda.DeleteFunctionConcurrency(ctx, &lambda.DeleteFunctionConcurrencyInput{
+			FunctionName: aws.String(functionName),
+		}); err != nil && !strings.Contains(err.Error(), "ResourceNotFoundException") {
+			return fmt.Errorf("failed to clear reserved concurrency for %s: %w", lambdaName, err)
+		}
+		return nil
+	}
+
+	value := *capacity.ReservedConcurrency
+	if _, err := pm.clients.Lambda.PutFunctionConcurrency(ctx, &lambda.PutFunctionConcurrencyInput{
+		FunctionName:                 aws.String(functionName),
+		ReservedConcurrentExecutions: aws.Int32(int32(value)),
+	}); err != nil {
+		return fmt.Errorf("failed to set reserved_concurrency=%d for %s (the account must keep 100 unreserved executions; check `aws lambda get-account-settings`): %w", value, lambdaName, err)
+	}
+	utils.Info(ctx, "Applied reserved concurrency", map[string]interface{}{
+		"lambda":               lambdaName,
+		"reserved_concurrency": value,
+	})
+	return nil
 }
 
 // waitForLambdaReady waits for a Lambda function to be ready for updates

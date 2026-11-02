@@ -300,6 +300,8 @@ The primary resource — orchestrates all infrastructure from a Ruby routes DSL 
 | `read_write_tables` | No | DynamoDB tables with read/write access for all Lambdas |
 | `lambda_config` | No | Per-lambda HCL configuration overrides (merged with YAML, HCL wins) |
 | `alarm_config` | No | CloudWatch alarm configuration (see below) |
+| `throttle` | No | Stage-level default throttle for every gateway: `{ rate = <req/s>, burst = <n> }` (see Throttling) |
+| `waf_web_acl_arn` | No | REGIONAL WAFv2 web ACL ARN associated with every gateway stage (see Throttling) |
 
 #### YAML Lambda Configuration
 
@@ -312,6 +314,11 @@ The preferred way to configure lambdas is via YAML files in `config/lambda/` —
 default: &default
   timeout: 30
   memory_size: 256
+  reserved_concurrency: 20      # PutFunctionConcurrency; omit for no reservation (0 disables the function)
+  ephemeral_storage: 1024       # /tmp in MB, 512–10240 (default 512)
+  throttle:                     # API Gateway limit for every route this Lambda serves
+    rate: 10                    # steady-state requests/second (fractional OK)
+    burst: 20                   # token bucket size
 
   env_vars:
     COGNITO_USER_POOL_ID: ref(cognito_user_pool_id)   # resolved from lambda_env_refs
@@ -358,6 +365,41 @@ resource "conveyor_belt" "main" {
 ```
 
 Use `belt lambda-config -e dev` to preview the merged config for any environment, and `belt lambda-config -f terraform` to see the Terraform-ready output.
+
+#### Throttling and WAF
+
+Without configuration a public route runs at the account default (10,000 req/s, 5,000 burst). Three knobs, all reconciled on the gateway's stage after each deployment:
+
+```hcl
+resource "conveyor_belt" "main" {
+  # Stage-level default for every gateway ("*/*" method settings)
+  throttle = {
+    rate  = 100
+    burst = 200
+  }
+
+  # One line instead of an aws_wafv2_web_acl_association per gateway
+  waf_web_acl_arn = aws_wafv2_web_acl.chat.arn
+}
+```
+
+```yaml
+# config/lambda/connect.yml — applies to every route served by the connect Lambda
+default: &default
+  throttle:
+    rate: 2
+    burst: 5
+```
+
+Precedence per route: a route-level `throttle` from the routes JSON (when your Belt version emits one) → the serving Lambda's `throttle:` → the stage `throttle` → account default. Method-level overrides the provider no longer finds in config are removed from the stage, so the stage is always exactly what the config says. Values are validated at plan time (`rate > 0`, `burst > 0`; `reserved_concurrency >= 0`; `ephemeral_storage` 512–10240) rather than silently dropped. Throttle and WAF changes are part of the gateway hash and show up under "Gateways to UPDATE".
+
+Removing `waf_web_acl_arn` detaches the ACL the provider attached; an ACL attached by other means (for example an `aws_wafv2_web_acl_association` in your own module) is never touched. API Gateway throttling is approximate — expect a few requests either side of the limit. Throttled clients get a `429` with `{"error":"Too Many Requests", ...}` (the `THROTTLED` and `QUOTA_EXCEEDED` gateway responses carry CORS headers like every other error).
+
+Reserved concurrency needs headroom: AWS keeps 100 unreserved executions per account, so on an account with a small concurrency limit (`aws lambda get-account-settings`) `PutFunctionConcurrency` is rejected and the apply fails with that message instead of deploying the route without its cap.
+
+#### CORS with several `frontend_urls`
+
+Real responses echo the matching origin from the Lambda runtime. The mock `OPTIONS` preflight does the same via a VTL response template (`$context.responseOverride`) with the first URL as the static fallback. Gateway error responses (401/403/404/429/5xx, produced before any integration runs) cannot evaluate a template against the request, so with several URLs they map `Access-Control-Allow-Origin` from the request's `Origin` header — functionally what `*` gave before, since those responses never carry `Access-Control-Allow-Credentials`, but without advertising a wildcard. Single-URL apps always get the exact URL.
 
 #### Partial Configs (Shared YAML)
 
@@ -784,6 +826,10 @@ terraform import conveyor_belt.main myapp-prod
 terraform import conveyor_belt_lambda.customer myapp-prod-customer
 terraform import conveyor_belt_gateway.api abc123xyz
 ```
+
+### Every plan wants to rebuild every Lambda
+
+Before 0.0.20 any `Gemfile.lock` with a `PATH remote:` (a sibling gem checkout, or a monorepo root such as `../..`) made every plan "1 to change" and every apply a full Docker rebuild. Since 0.0.20 PATH remotes are hashed at plan time with a walker that honors the remote's root `.gitignore` and always skips dot-directories plus `tmp`, `log`, `node_modules`, `vendor`, `coverage`, `spec`, `test`, `pkg`, `doc`. If a clean tree still plans a change, something outside those rules is being written between runs — check `git status --ignored` in the PATH remote and add the path to its `.gitignore`.
 
 ### OPTIONS 500 Errors
 

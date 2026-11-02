@@ -83,6 +83,12 @@ func (pm *ParallelManager) createGatewayViaOpenAPI(
 		return result
 	}
 
+	// Stage throttling + WAF association live on the stage, not in the spec
+	if err := pm.reconcileStageSettings(ctx, apiID, gatewayName, gatewayRoutes, config); err != nil {
+		result.Error = err
+		return result
+	}
+
 	// Add Lambda permissions
 	if err := pm.addLambdaPermissionsForGateway(ctx, apiID, gatewayRoutes, lambdaARNs, config); err != nil {
 		utils.Warn(ctx, "Failed to add some Lambda permissions", map[string]interface{}{
@@ -139,6 +145,12 @@ func (pm *ParallelManager) updateGatewayViaOpenAPI(
 	// Create deployment
 	invokeURL, err := pm.deployGateway(ctx, apiID, gatewayName, config)
 	if err != nil {
+		result.Error = err
+		return result
+	}
+
+	// Stage throttling + WAF association live on the stage, not in the spec
+	if err := pm.reconcileStageSettings(ctx, apiID, gatewayName, gatewayRoutes, config); err != nil {
 		result.Error = err
 		return result
 	}

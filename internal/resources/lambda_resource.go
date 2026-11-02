@@ -590,6 +590,10 @@ func (r *lambdaResource) createLambdaFunction(ctx context.Context, functionName,
 		}
 	}
 
+	if capacity := extractLambdaCapacity(config.LambdaConfig, lambdaName); capacity.EphemeralStorage > 0 {
+		createInput.EphemeralStorage = &lambdaTypes.EphemeralStorage{Size: aws.Int32(int32(capacity.EphemeralStorage))}
+	}
+
 	// Retry logic for IAM role propagation.
 	// New IAM execution roles are eventually consistent and can take 30-60s+ to
 	// become assumable by Lambda; use capped-exponential backoff (~2 min budget).
@@ -922,7 +926,8 @@ func (r *lambdaResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 		// Includes Runtime (from ruby_version), layers, and VPC config if specified
 		vpcConfig := extractVpcConfig(config.LambdaConfig, lambdaName)
-		updateConfigInput := buildUpdateFunctionConfigurationInput(functionName, config, envVars, effectiveTimeout, effectiveMemory, vpcConfig)
+		capacity := extractLambdaCapacity(config.LambdaConfig, lambdaName)
+		updateConfigInput := buildUpdateFunctionConfigurationInput(functionName, config, envVars, effectiveTimeout, effectiveMemory, vpcConfig, capacity)
 
 		_, err := r.clients.Lambda.UpdateFunctionConfiguration(ctx, updateConfigInput)
 		if err != nil {

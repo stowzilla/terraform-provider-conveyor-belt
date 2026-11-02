@@ -252,7 +252,7 @@ func convertToLambdaConfig(merged map[string]interface{}, envRefs map[string]str
 		"timeout", "memory_size", "runtime",
 		"ses_emails",
 		"reserved_concurrency", "ephemeral_storage",
-		"vpc_config",
+		"vpc_config", "throttle",
 	}
 
 	for _, key := range simpleKeys {

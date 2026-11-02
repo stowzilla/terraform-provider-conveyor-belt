@@ -75,6 +75,8 @@ type DispatcherResourceModel struct {
 	FriendlyErrors       types.Bool   `tfsdk:"friendly_errors"`
 	SchemaSource         types.String `tfsdk:"schema_source"`
 	SuppressTableEnvVars types.Bool   `tfsdk:"suppress_table_env_vars"`
+	Throttle             types.Object `tfsdk:"throttle"`
+	WafWebAclArn         types.String `tfsdk:"waf_web_acl_arn"`
 
 	// Lambda configuration overrides
 	LambdaConfig    types.Dynamic `tfsdk:"lambda_config"`
@@ -201,6 +203,28 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					"Use this when your Lambda code derives table names from APP_NAME and ENVIRONMENT instead. Default: false.",
 				Optional: true,
 			},
+			"throttle": schema.SingleNestedAttribute{
+				Description: "Stage-level default throttle applied to every gateway (API Gateway '*/*' method settings): " +
+					"rate = steady-state requests per second, burst = token bucket size. Without it a public route runs at " +
+					"the account default (10,000 rps / 5,000 burst). Per-route limits come from `throttle: { rate:, burst: }` " +
+					"in config/lambda/<fn>.yml (all routes served by that Lambda) or on a route in routes.rb (wins over the Lambda's).",
+				Optional: true,
+				Attributes: map[string]schema.Attribute{
+					"rate": schema.Float64Attribute{
+						Description: "Steady-state requests per second (may be fractional, e.g. 0.5)",
+						Required:    true,
+					},
+					"burst": schema.Int64Attribute{
+						Description: "Maximum burst of concurrent requests the token bucket absorbs",
+						Required:    true,
+					},
+				},
+			},
+			"waf_web_acl_arn": schema.StringAttribute{
+				Description: "ARN of a REGIONAL WAFv2 web ACL to associate with every gateway stage. " +
+					"Removing the attribute detaches the ACL the provider attached; an ACL attached by other means is left alone.",
+				Optional: true,
+			},
 			"schema_source": schema.StringAttribute{
 				Description: "Path to contracts file (contracts.rb, contracts.tf.rb, or schema.tf.rb) defining API Gateway request/response models. " +
 					"When provided, Dispatcher creates API Gateway Models and Request Validators " +
@@ -210,13 +234,14 @@ func (r *dispatcherResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			},
 			"lambda_config": schema.DynamicAttribute{
 				Description: "Per-lambda Lambda configuration overrides. Keys are lambda names (or 'shared' for all). " +
-					"Values can include: env_vars, timeout, memory_size, dynamodb_tables, s3_buckets, ses_emails, sns_triggers, sqs_triggers",
+					"Values can include: env_vars, timeout, memory_size, reserved_concurrency, ephemeral_storage, throttle, " +
+					"dynamodb_tables, s3_buckets, ses_emails, sns_triggers, sqs_triggers, iam_policy_arns",
 				Optional: true,
 			},
 			"lambda_config_dir": schema.StringAttribute{
 				Description: "Path to a directory containing per-lambda YAML config files (database.yml style). " +
-					"Each file is named <lambda>.yml and defines timeout, memory_size, env_vars, env_keys, " +
-					"and resource access per environment. Values from lambda_config (Terraform) override YAML values.",
+					"Each file is named <lambda>.yml and defines timeout, memory_size, reserved_concurrency, ephemeral_storage, " +
+					"throttle, env_vars, env_keys, and resource access per environment. Values from lambda_config (Terraform) override YAML values.",
 				Optional: true,
 			},
 			"lambda_env_refs": schema.MapAttribute{
@@ -539,6 +564,15 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	}
 	lambdaConfig := planConfig.LambdaConfig
 
+	// Reject malformed reserved_concurrency / ephemeral_storage / throttle values
+	// now rather than dropping them silently at apply time (Fizzy #1756).
+	for _, verr := range validateLambdaSettings(lambdaConfig) {
+		resp.Diagnostics.AddError("Invalid Lambda configuration", verr.Error())
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Extract tables from plan for hash calculation
 	var readOnlyTables, readWriteTables []string
 	if !plan.ReadOnlyTables.IsNull() && !plan.ReadOnlyTables.IsUnknown() {
@@ -630,12 +664,14 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		postImportState = true
 	}
 
-	// Calculate new gateway hashes to determine which gateways will be updated
-	var planFrontendUrls []string
-	if !plan.FrontendUrls.IsNull() && !plan.FrontendUrls.IsUnknown() {
-		plan.FrontendUrls.ElementsAs(ctx, &planFrontendUrls, false)
+	// Calculate new gateway hashes to determine which gateways will be updated.
+	// waf_web_acl_arn and throttle may reference resources being created in the
+	// same apply; when unknown, gateway hashes are deferred to apply.
+	newGatewayHashes, _ := calculateAllGatewayHashes(routes, gatewayHashInputsFromConfig(planConfig))
+	gatewayInputsUnknown := plan.WafWebAclArn.IsUnknown() || plan.Throttle.IsUnknown()
+	if gatewayInputsUnknown {
+		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] waf_web_acl_arn/throttle unknown — gateway hashes deferred to apply")
 	}
-	newGatewayHashes, _ := calculateAllGatewayHashes(routes, planFrontendUrls)
 
 	// Check for new or removed lambdas
 	newLambdaSet := make(map[string]bool)
@@ -888,27 +924,25 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		plan.RoutesHash = types.StringUnknown()
 		plan.RoutesJson = types.StringUnknown()
 
-		// Source hashes don't depend on IAM/layer/alarm config, so compute them if possible —
-		// UNLESS PATH gems exist in the lockfile. Path gem directories are external worktrees
-		// that can be modified between plan invocations, causing inconsistent hashes.
-		if hasPathGemsInProject(lambdaSourceDir) {
-			tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] PATH gems detected — marking source hashes as unknown (external worktree may change)")
+		// Source hashes don't depend on IAM/layer/alarm config, so compute them here.
+		// PATH gems (Gemfile.lock PATH remotes) are hashed like any other source — the
+		// walk ignores .git/tmp/log/etc and the remote's .gitignore, so the value is
+		// stable between plan and apply for a clean tree (Fizzy #1756).
+		newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
+		if srcErr != nil {
 			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
 		} else {
-			newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
-			if srcErr != nil {
-				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
-			} else {
-				shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
-				resp.Diagnostics.Append(d...)
-				plan.LambdaSourceHashes = shMap
-			}
+			shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
+			resp.Diagnostics.Append(d...)
+			plan.LambdaSourceHashes = shMap
 		}
 
 		// Gateway and model hashes don't depend on these inputs either
 		newGatewayHashesMap, gwErr := types.MapValueFrom(ctx, types.StringType, newGatewayHashes)
 		if gwErr.HasError() {
 			resp.Diagnostics.Append(gwErr...)
+		} else if gatewayInputsUnknown {
+			plan.GatewayHashes = types.MapUnknown(types.StringType)
 		} else {
 			plan.GatewayHashes = newGatewayHashesMap
 		}
@@ -956,6 +990,8 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		newGatewayHashesMap, gwErr := types.MapValueFrom(ctx, types.StringType, newGatewayHashes)
 		if gwErr.HasError() {
 			resp.Diagnostics.Append(gwErr...)
+		} else if gatewayInputsUnknown {
+			plan.GatewayHashes = types.MapUnknown(types.StringType)
 		} else {
 			plan.GatewayHashes = newGatewayHashesMap
 		}
@@ -983,21 +1019,13 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		}
 
 		// Source hashes (routes don't affect source hashes, but structure changes do)
-		// When PATH gems exist, source hashes are unstable (external worktrees can change
-		// between plan invocations) — mark as unknown to avoid inconsistent plan errors.
-		if hasPathGemsInProject(lambdaSourceDir) {
+		newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
+		if srcErr != nil {
 			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
-			plan.LambdaHashes = types.MapUnknown(types.StringType)
-			tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] PATH gems detected — marking source/lambda hashes as unknown")
 		} else {
-			newSrcHashes, srcErr := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
-			if srcErr != nil {
-				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
-			} else {
-				shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
-				resp.Diagnostics.Append(d...)
-				plan.LambdaSourceHashes = shMap
-			}
+			shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
+			resp.Diagnostics.Append(d...)
+			plan.LambdaSourceHashes = shMap
 		}
 
 		// Model hashes — compute per-gateway
@@ -1116,24 +1144,17 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 			plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
 			plan.LambdaConfigHashes = types.MapUnknown(types.StringType)
 		} else {
-			// When PATH gems exist, source hashes are unstable — mark as unknown
-			if hasPathGemsInProject(lambdaSourceDir) {
-				plan.LambdaHashes = types.MapUnknown(types.StringType)
-				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
-				tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] PATH gems detected — marking source/lambda hashes as unknown")
-			} else {
-				lhMap, d := types.MapValueFrom(ctx, types.StringType, newAllLambdaHashes)
-				resp.Diagnostics.Append(d...)
-				plan.LambdaHashes = lhMap
+			lhMap, d := types.MapValueFrom(ctx, types.StringType, newAllLambdaHashes)
+			resp.Diagnostics.Append(d...)
+			plan.LambdaHashes = lhMap
 
-				newSrcHashes, _ := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
-				if newSrcHashes != nil {
-					shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
-					resp.Diagnostics.Append(d...)
-					plan.LambdaSourceHashes = shMap
-				} else {
-					plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
-				}
+			newSrcHashes, _ := calculateAllLambdaSourceHashes(lambdas, lambdaSourceDir, sharedDirs, gemDirs...)
+			if newSrcHashes != nil {
+				shMap, d := types.MapValueFrom(ctx, types.StringType, newSrcHashes)
+				resp.Diagnostics.Append(d...)
+				plan.LambdaSourceHashes = shMap
+			} else {
+				plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
 			}
 
 			newCfgHashes, _ := calculateAllLambdaConfigHashes(lambdas, routes, lambdaConfig, layerArns, alarmConfig, readOnlyTables, readWriteTables, sharedIamPolicyArns)
@@ -1297,6 +1318,24 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 			return nil, fmt.Errorf("failed to extract frontend_urls")
 		}
 		config.FrontendUrls = frontendUrls
+	}
+
+	// Stage-level throttle + WAF association (Fizzy #1756)
+	if !model.Throttle.IsNull() && !model.Throttle.IsUnknown() {
+		attrs := model.Throttle.Attributes()
+		t := &ThrottleSettings{}
+		if v, ok := attrs["rate"].(types.Float64); ok && !v.IsNull() && !v.IsUnknown() {
+			t.Rate = v.ValueFloat64()
+		}
+		if v, ok := attrs["burst"].(types.Int64); ok && !v.IsNull() && !v.IsUnknown() {
+			t.Burst = v.ValueInt64()
+		}
+		if t.Rate > 0 || t.Burst > 0 {
+			config.StageThrottle = t
+		}
+	}
+	if !model.WafWebAclArn.IsNull() && !model.WafWebAclArn.IsUnknown() {
+		config.WafWebAclArn = model.WafWebAclArn.ValueString()
 	}
 
 	// Extract Cognito User Pool ARNs
@@ -1993,7 +2032,7 @@ func (r *dispatcherResource) Create(ctx context.Context, req resource.CreateRequ
 	// Step 7: Calculate hashes for change detection
 	routesHash, _ := calculateConfigHash(routes, models, lambdaConfig, config.ReadOnlyTables, config.ReadWriteTables)
 	lambdaHashes := r.calculateLambdaHashes(ctx, lambdas, routes, lambdaConfig, config)
-	gatewayHashes, _ := calculateAllGatewayHashes(routes, config.FrontendUrls)
+	gatewayHashes, _ := calculateAllGatewayHashes(routes, gatewayHashInputsFromConfig(config))
 
 	// Calculate model hashes per gateway
 	modelHashesMap := make(map[string]string)
@@ -2626,9 +2665,15 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 		state.ModelHashes.ElementsAs(ctx, &oldModelHashes, false)
 	}
 
+	// Remember the WAF ACL from prior state so removing waf_web_acl_arn detaches
+	// the ACL we attached (and only that one).
+	if !state.WafWebAclArn.IsNull() && !state.WafWebAclArn.IsUnknown() {
+		config.PreviousWafWebAclArn = state.WafWebAclArn.ValueString()
+	}
+
 	// Calculate new hashes
 	newLambdaHashes := r.calculateLambdaHashes(ctx, newLambdas, routes, lambdaConfig, config)
-	newGatewayHashes, _ := calculateAllGatewayHashes(routes, config.FrontendUrls)
+	newGatewayHashes, _ := calculateAllGatewayHashes(routes, gatewayHashInputsFromConfig(config))
 
 	// Calculate new model hashes for change detection
 	newModelHashes := make(map[string]string)
@@ -3150,7 +3195,7 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	// Calculate final hashes
 	routesHash, _ := calculateConfigHash(routes, models, lambdaConfig, config.ReadOnlyTables, config.ReadWriteTables)
-	gatewayHashes, _ := calculateAllGatewayHashes(routes, config.FrontendUrls)
+	gatewayHashes, _ := calculateAllGatewayHashes(routes, gatewayHashInputsFromConfig(config))
 
 	// Update state
 	plan.ID = state.ID
