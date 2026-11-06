@@ -545,6 +545,10 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		tflog.Error(ctx, "[CONVEYOR-BELT_PLAN] Failed to parse routes", map[string]interface{}{
 			"error": err.Error(),
 		})
+		// Leaving the hashes at their prior-state values (UseStateForUnknown)
+		// would promise apply they won't change; defer them instead.
+		markDerivedHashesUnknown(&plan)
+		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 		return
 	}
 
@@ -560,7 +564,22 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		tflog.Error(ctx, "[CONVEYOR-BELT_PLAN] Failed to build config from model", map[string]interface{}{
 			"error": buildErr.Error(),
 		})
+		markDerivedHashesUnknown(&plan)
+		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 		return
+	}
+
+	// Terraform re-runs ModifyPlan during apply once values from resources
+	// created earlier in that apply are known, and every value we planned as
+	// known must come out identical. Whole-attribute IsUnknown checks miss a
+	// known map/list/object holding an unknown element (lambda_env_refs =
+	// { kms_arn = aws_kms_key.new.arn }, an alarm sns_topic_arn, a Cognito
+	// pool ARN): it reads as "" now and as the real ARN at apply, so every
+	// hash moves (Fizzy #1878). If any configured value is still unknown,
+	// defer all config-derived hashes to apply.
+	configFullyKnown := req.Config.Raw.IsFullyKnown()
+	if !configFullyKnown {
+		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] Config contains unknown values — deferring derived hashes to apply")
 	}
 	lambdaConfig := planConfig.LambdaConfig
 
@@ -668,7 +687,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	// waf_web_acl_arn and throttle may reference resources being created in the
 	// same apply; when unknown, gateway hashes are deferred to apply.
 	newGatewayHashes, _ := calculateAllGatewayHashes(routes, gatewayHashInputsFromConfig(planConfig))
-	gatewayInputsUnknown := plan.WafWebAclArn.IsUnknown() || plan.Throttle.IsUnknown()
+	gatewayInputsUnknown := !configFullyKnown || plan.WafWebAclArn.IsUnknown() || plan.Throttle.IsUnknown()
 	if gatewayInputsUnknown {
 		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] waf_web_acl_arn/throttle unknown — gateway hashes deferred to apply")
 	}
@@ -863,7 +882,7 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 
 	// Get layer ARNs for hash calculation
 	var layerArns []string
-	hashInputsUnknown := postImportState
+	hashInputsUnknown := postImportState || !configFullyKnown
 	if plan.LambdaLayerArns.IsUnknown() {
 		hashInputsUnknown = true
 		tflog.Info(ctx, "[CONVEYOR-BELT_PLAN] LambdaLayerArns is unknown — hash inputs incomplete")
@@ -946,6 +965,14 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 		} else {
 			plan.GatewayHashes = newGatewayHashesMap
 		}
+
+		// The apply-time re-plan runs the full change detection below, which can
+		// mark spec/model hashes and base path mappings unknown. A value planned
+		// as known here must not turn unknown then ("was known, but now
+		// unknown"), so defer them too. Update computes all three.
+		plan.OpenAPISpecHashes = types.MapUnknown(types.StringType)
+		plan.ModelHashes = types.MapUnknown(types.StringType)
+		plan.BasePathMappings = types.MapUnknown(types.StringType)
 
 		if lambdaStructureChanged {
 			plan.LambdaFunctions = types.MapUnknown(types.StringType)
@@ -1264,6 +1291,22 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 	r.generateSpecsDuringPlan(ctx, &plan, &state, routes, models)
 }
 
+// markDerivedHashesUnknown defers every hash ModifyPlan derives from the
+// routes file, lambda config and source tree to apply. Used when ModifyPlan
+// cannot compute them: the attributes carry UseStateForUnknown, so leaving
+// them alone would plan the prior state's values, and the apply-time re-plan
+// would then fail with "Provider produced inconsistent final plan".
+func markDerivedHashesUnknown(plan *DispatcherResourceModel) {
+	plan.RoutesHash = types.StringUnknown()
+	plan.RoutesJson = types.StringUnknown()
+	plan.LambdaHashes = types.MapUnknown(types.StringType)
+	plan.LambdaSourceHashes = types.MapUnknown(types.StringType)
+	plan.LambdaConfigHashes = types.MapUnknown(types.StringType)
+	plan.GatewayHashes = types.MapUnknown(types.StringType)
+	plan.ModelHashes = types.MapUnknown(types.StringType)
+	plan.OpenAPISpecHashes = types.MapUnknown(types.StringType)
+}
+
 // initializeManagers initializes AWS clients and managers for the resource
 func (r *dispatcherResource) initializeManagers(ctx context.Context, config *DispatcherConfig) error {
 	// Always reinitialize managers with the current config to ensure
@@ -1418,12 +1461,16 @@ func (r *dispatcherResource) buildConfigFromModel(ctx context.Context, model *Di
 	if !model.LambdaConfigDir.IsNull() && !model.LambdaConfigDir.IsUnknown() {
 		configDir := model.LambdaConfigDir.ValueString()
 
-		// Extract lambda_env_refs for ref() resolution
+		// Extract lambda_env_refs for ref() resolution. At plan time some values
+		// may be unknown (a resource created in the same apply); those are left
+		// out and resolve to "" here. ModifyPlan marks the hashes unknown in that
+		// case, so the placeholder never reaches state.
 		envRefs := make(map[string]string)
 		if !model.LambdaEnvRefs.IsNull() && !model.LambdaEnvRefs.IsUnknown() {
-			diags := model.LambdaEnvRefs.ElementsAs(ctx, &envRefs, false)
-			if diags.HasError() {
-				return nil, fmt.Errorf("failed to extract lambda_env_refs")
+			for k, v := range model.LambdaEnvRefs.Elements() {
+				if s, ok := v.(types.String); ok && !s.IsNull() && !s.IsUnknown() {
+					envRefs[k] = s.ValueString()
+				}
 			}
 		}
 
@@ -3259,7 +3306,11 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 	// This prevents "inconsistent result after apply" errors when only lambda source changes.
 	openAPISpecHashes := r.generateOpenAPISpecsSideEffect(ctx, routes, lambdaARNs, models, config)
 
-	if !plan.OpenAPISpecHashes.IsNull() {
+	if plan.OpenAPISpecHashes.IsUnknown() {
+		specMap, diags := types.MapValueFrom(ctx, types.StringType, openAPISpecHashes)
+		resp.Diagnostics.Append(diags...)
+		plan.OpenAPISpecHashes = specMap
+	} else if !plan.OpenAPISpecHashes.IsNull() {
 		// Merge: replace unknown elements with computed values, keep known elements
 		planElements := plan.OpenAPISpecHashes.Elements()
 		mergedElements := make(map[string]attr.Value)
