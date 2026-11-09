@@ -199,6 +199,7 @@ func hashPathGemContents(dirPath string) (string, error) {
 			strings.HasSuffix(name, ".swp") ||
 			strings.HasSuffix(name, ".swo") ||
 			strings.HasSuffix(name, "~") ||
+			strings.HasSuffix(name, ".gem") || // build artifacts from `gem build`, never source
 			ignore.ignored(rel, false) {
 			return nil
 		}

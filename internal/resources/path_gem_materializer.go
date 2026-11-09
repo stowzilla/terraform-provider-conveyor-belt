@@ -71,10 +71,10 @@ func materializePathGems(ctx context.Context, buildDir, projectRoot string) ([]s
 			}
 			dest := filepath.Join(cacheDir, filepath.Base(gemFile))
 			if err := copyFileSimple(gemFile, dest); err != nil {
-				_ = os.Remove(gemFile)
+				_ = os.RemoveAll(filepath.Dir(gemFile))
 				return nil, fmt.Errorf("failed to copy built gem %s: %w", gem.name, err)
 			}
-			_ = os.Remove(gemFile)
+			_ = os.RemoveAll(filepath.Dir(gemFile))
 
 			if err := rewriteGemfilePathToVersion(gemfile, gem.name, gem.version); err != nil {
 				return nil, err
@@ -178,23 +178,23 @@ func buildPathGem(sourcePath string, gem pathGem) (string, error) {
 		return "", fmt.Errorf("path gem %s version mismatch: gemspec %s, lock %s", gem.name, specVersion, gem.version)
 	}
 
-	buildCmd := exec.Command("gem", "build", filepath.Base(gemspec))
+	// Build into a scratch dir so the PATH remote is never written to. A .gem
+	// dropped into (or deleted from) the remote changes its plan-time hash and
+	// makes ModifyPlan disagree with Create/Update ("inconsistent final plan").
+	outDir, err := os.MkdirTemp("", "conveyor-pathgem-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create gem output dir for %s: %w", gem.name, err)
+	}
+	gemFile := filepath.Join(outDir, fmt.Sprintf("%s-%s.gem", gem.name, gem.version))
+	buildCmd := exec.Command("gem", "build", filepath.Base(gemspec), "--output", gemFile)
 	buildCmd.Dir = sourcePath
 	buildOut, err := buildCmd.CombinedOutput()
 	if err != nil {
+		_ = os.RemoveAll(outDir)
 		return "", fmt.Errorf("gem build failed for %s: %w\n%s", gem.name, err, string(buildOut))
 	}
-
-	// gem build writes name-version.gem into cwd
-	gemFile := filepath.Join(sourcePath, fmt.Sprintf("%s-%s.gem", gem.name, gem.version))
 	if _, err := os.Stat(gemFile); err != nil {
-		// Fallback: parse "File: foo.gem" from output
-		fileRe := regexp.MustCompile(`(?m)File:\s+(\S+\.gem)`)
-		if m := fileRe.FindStringSubmatch(string(buildOut)); m != nil {
-			gemFile = filepath.Join(sourcePath, m[1])
-		}
-	}
-	if _, err := os.Stat(gemFile); err != nil {
+		_ = os.RemoveAll(outDir)
 		return "", fmt.Errorf("built gem not found after gem build for %s (looked for %s):\n%s", gem.name, gemFile, string(buildOut))
 	}
 	return gemFile, nil
