@@ -75,13 +75,23 @@ When triggers are removed from `lambda_config`:
 
 ### Reconciliation
 
-During `terraform apply`, the provider:
+During every `terraform apply` / `belt deploy` that runs `Update()` on the
+`conveyor_belt` resource, the provider reconciles triggers for **every** Lambda
+that declares `sns_triggers` or `sqs_triggers` — the same every-apply pattern
+used for SQS IAM policies. This is independent of whether that Lambda's code or
+config hash changed:
 
 1. Queries AWS for existing triggers on each Lambda
 2. Compares existing state with desired configuration
-3. Creates missing triggers
+3. Creates missing triggers (e.g. an event source mapping that never landed or was deleted out of band)
 4. Updates triggers with changed settings
 5. Deletes orphaned triggers (in AWS but not in config)
+
+Source-only code deploys therefore heal a missing SQS event source mapping
+instead of leaving the queue unconsumed while the IAM policy stays healthy.
+
+Newly created Lambdas still get their triggers from the create path
+(`setupSNSTriggers` / `setupSQSTriggers`); the every-apply pass skips them.
 
 ## Change Detection
 
@@ -90,6 +100,7 @@ Trigger changes are detected via hash calculation:
 - `sns_triggers` and `sqs_triggers` are included in the Lambda config hash
 - When triggers change, the hash changes, triggering a config update
 - Trigger-only changes result in `LambdaUpdateTypeConfig` (no code redeployment)
+- Even without a hash change, the every-apply reconcile above keeps AWS in sync
 
 ## Error Handling
 

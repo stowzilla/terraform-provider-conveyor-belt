@@ -2895,6 +2895,7 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 			// Also reconcile lambdas with sqs_triggers that may be missing their
 			// SQS IAM policy (e.g., deployed before SQS policy support was added).
 			// PutRolePolicy is idempotent so this is safe to run on every apply.
+			// Event source mappings are reconciled separately below.
 			if len(extractSQSTriggers(lambdaConfig, lambdaName)) > 0 {
 				lambdasToReconcile = append(lambdasToReconcile, lambdaName)
 				continue
@@ -2990,6 +2991,68 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 				"Failed to attach shared IAM policies",
 				strings.Join(iamErrors, "; "),
 			)
+		}
+	}
+
+	// Reconcile SNS/SQS triggers for every lambda that declares them.
+	// updateSingleLambda only calls ReconcileTriggers on Config/Both updates —
+	// a source-only deploy leaves a missing event source mapping missing while
+	// the IAM reconcile above keeps the SQS policy healthy (inventory-prod
+	// order_worker, 2026-11-10; same class as s3arch search_indexer).
+	// ReconcileTriggers is idempotent, so this is safe on every apply.
+	{
+		newLambdaSet := make(map[string]bool, len(lambdasToCreate))
+		for _, created := range lambdasToCreate {
+			newLambdaSet[created] = true
+		}
+
+		lambdasToReconcileTriggers := make([]string, 0)
+		for _, lambdaName := range newLambdas {
+			if newLambdaSet[lambdaName] {
+				continue // Create path already called setupSQSTriggers / setupSNSTriggers
+			}
+			if len(extractSQSTriggers(lambdaConfig, lambdaName)) > 0 ||
+				len(extractSNSTriggers(lambdaConfig, lambdaName)) > 0 {
+				lambdasToReconcileTriggers = append(lambdasToReconcileTriggers, lambdaName)
+			}
+		}
+
+		if len(lambdasToReconcileTriggers) > 0 {
+			utils.Info(ctx, "Reconciling SNS/SQS triggers for lambdas with declared triggers (parallel)", map[string]interface{}{
+				"reconcile_count": len(lambdasToReconcileTriggers),
+				"total_lambdas":   len(newLambdas),
+			})
+
+			triggerManager := NewTriggerManager(r.clients, config)
+			var triggerWg sync.WaitGroup
+			triggerConcurrency := config.DockerBuildConcurrency
+			if triggerConcurrency <= 0 {
+				triggerConcurrency = runtime.NumCPU()
+			}
+			triggerSem := make(chan struct{}, triggerConcurrency)
+			for _, lambdaName := range lambdasToReconcileTriggers {
+				triggerWg.Add(1)
+				go func(ln string) {
+					defer triggerWg.Done()
+					triggerSem <- struct{}{}
+					defer func() { <-triggerSem }()
+
+					lambdaArn := lambdaARNs[ln]
+					if lambdaArn == "" {
+						utils.Warn(ctx, "Could not get Lambda ARN for trigger reconciliation", map[string]interface{}{
+							"lambda": ln,
+						})
+						return
+					}
+					if err := triggerManager.ReconcileTriggers(ctx, ln, lambdaArn, lambdaConfig); err != nil {
+						utils.Warn(ctx, "Failed to reconcile triggers", map[string]interface{}{
+							"lambda": ln,
+							"error":  err.Error(),
+						})
+					}
+				}(lambdaName)
+			}
+			triggerWg.Wait()
 		}
 	}
 

@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.21] - 2026-11-10
+
+### Fixed
+
+- **Missing SQS (and SNS) event source mappings are recreated on every apply** — Lambdas that declare `sqs_triggers` / `sns_triggers` already got their SQS IAM policy reconciled on every apply, but `ReconcileTriggers` (which creates the Lambda event source mapping / SNS subscription) only ran on create or when the Lambda *config* hash changed. A source-only `belt deploy` therefore left a missing mapping missing forever while the IAM policy stayed healthy — the worker looked wired up (`belt lambda-config` showed the trigger, role had `sqs:ReceiveMessage`) and still never consumed the queue. Seen on solarpunkit `inventory-prod-order_worker` (Sync Shopify hung with ~200 queued messages) and previously on Stowzilla's `search_indexer`. `Update()` now calls `ReconcileTriggers` in parallel for every non-new lambda that declares triggers, matching the IAM reconcile pattern. Idempotent; no plan-time API cost.
+
 ## [0.0.20] - 2026-11-02
 
 ### Fixed
