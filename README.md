@@ -547,9 +547,10 @@ lambda_config = {
 
 #### Trigger Lifecycle Management
 
-SNS and SQS triggers are fully managed. When you modify `sns_triggers` or `sqs_triggers`, the provider automatically:
+SNS and SQS triggers are fully managed. On every apply, and whenever you modify
+`sns_triggers` or `sqs_triggers`, the provider automatically:
 
-- Creates new triggers when added
+- Creates new triggers when added (including recreating a mapping that went missing)
 - Updates existing triggers when settings change (e.g., `batch_size`)
 - Deletes triggers when removed from configuration
 - Cleans up orphaned triggers found in AWS but not in config

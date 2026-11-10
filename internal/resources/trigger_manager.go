@@ -1607,7 +1607,8 @@ func (tm *TriggerManager) ReconcileSQSTriggers(
 
 // ReconcileTriggers is the main entry point for trigger reconciliation.
 // It extracts triggers from lambda_config and calls ReconcileSNSTriggers and ReconcileSQSTriggers.
-// This function is called during Lambda updates to ensure AWS trigger state matches configuration.
+// Called on Lambda config updates and on every Update() apply for any lambda that
+// declares sns_triggers / sqs_triggers, so a missing mapping survives source-only deploys no longer.
 //
 // The function is designed to be resilient:
 // - It continues processing even if one type of trigger reconciliation fails
