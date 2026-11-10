@@ -5,11 +5,17 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.21] - 2026-11-10
+## [0.0.22] - 2026-11-10
 
 ### Fixed
 
 - **Missing SQS (and SNS) event source mappings are recreated on every apply** — Lambdas that declare `sqs_triggers` / `sns_triggers` already got their SQS IAM policy reconciled on every apply, but `ReconcileTriggers` (which creates the Lambda event source mapping / SNS subscription) only ran on create or when the Lambda *config* hash changed. A source-only `belt deploy` therefore left a missing mapping missing forever while the IAM policy stayed healthy — the worker looked wired up (`belt lambda-config` showed the trigger, role had `sqs:ReceiveMessage`) and still never consumed the queue. Seen on solarpunkit `inventory-prod-order_worker` (Sync Shopify hung with ~200 queued messages) and previously on Stowzilla's `search_indexer`. `Update()` now calls `ReconcileTriggers` in parallel for every non-new lambda that declares triggers, matching the IAM reconcile pattern. Idempotent; no plan-time API cost.
+
+## [0.0.21] - 2026-11-06
+
+### Fixed
+
+- **"Provider produced inconsistent final plan" after big changes** — When the config held a known map/list/object with an unknown element (typically `lambda_env_refs = { kms_arn = aws_kms_key.new.arn }` for a resource created in the same apply, or an alarm `sns_topic_arn`/Cognito ARN), `buildConfigFromModel` failed on `lambda_env_refs.ElementsAs` and `ModifyPlan` returned early. Every hash attribute has `UseStateForUnknown`, so the plan promised the prior state's `routes_hash`, `lambda_*_hashes`, `gateway_hashes` and `openapi_spec_hashes`; the apply-time re-plan, with the ARN now known, computed the real values and Terraform aborted. The retry worked because nothing was unknown any more. Now: unknown `lambda_env_refs` entries are skipped instead of erroring; if `req.Config` is not fully known, all config-derived hashes (and gateway, model and OpenAPI spec hashes, and base path mappings) are deferred to apply; and any remaining `ModifyPlan` error path marks the hashes unknown rather than leaving state values in the plan. Source hashes are still computed at plan time, so source diffs stay visible. Also: `gem build` for PATH gems writes to a scratch directory instead of the PATH remote, and `hashPathGemContents` ignores `*.gem`. (Fizzy #1878)
 
 ## [0.0.20] - 2026-11-02
 
