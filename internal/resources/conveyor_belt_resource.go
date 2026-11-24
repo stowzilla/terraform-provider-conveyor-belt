@@ -1267,7 +1267,9 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 				state.BasePathMappings.ElementsAs(ctx, &currentMappings, false)
 			}
 
-			missingMappings := false
+			// A new domain has none of the old domain's mappings, so the apply
+			// syncs them and the result can't be known at plan time.
+			missingMappings := state.CustomDomainName.IsNull() || state.CustomDomainName.ValueString() != customDomainName
 			for _, g := range gateways {
 				if _, exists := currentMappings[g]; !exists {
 					missingMappings = true
