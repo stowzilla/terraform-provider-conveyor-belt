@@ -5,6 +5,12 @@ All notable changes to `terraform-provider-conveyor-belt` will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Turning on a custom domain for an existing environment now creates its base path mappings** — `Update()` only synced base path mappings when gateways were added or removed. Setting `custom_domain_name` on an environment that already had its gateways (DNS switched on after the first deploy) took the "carry forward" branch, which wrote every gateway into `base_path_mappings` state without calling AWS. The custom domain existed with zero mappings, so every request to it got API Gateway's bare `403 {"message":"Forbidden"}` with no CORS headers, which browsers report as a failed preflight. Seen on solarpunkit dev and prod after moving to `app.solarpunkit.com`. The sync now also runs when the custom domain changed or a gateway has no mapping in the refreshed state (`Read()` already refreshes mappings from AWS, so environments stuck in this state heal on their next apply). A failed sync no longer records the unsynced gateways as mapped. `SyncBasePathMappings` was already idempotent, so mappings created by hand are left alone.
+
 ## [0.0.22] - 2026-11-10
 
 ### Fixed
