@@ -1267,7 +1267,9 @@ func (r *dispatcherResource) ModifyPlan(ctx context.Context, req resource.Modify
 				state.BasePathMappings.ElementsAs(ctx, &currentMappings, false)
 			}
 
-			missingMappings := false
+			// A new domain has none of the old domain's mappings, so the apply
+			// syncs them and the result can't be known at plan time.
+			missingMappings := state.CustomDomainName.IsNull() || state.CustomDomainName.ValueString() != customDomainName
 			for _, g := range gateways {
 				if _, exists := currentMappings[g]; !exists {
 					missingMappings = true
@@ -3226,15 +3228,33 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 			// Build custom domain URL (always needed for state)
 			customDomainUrl = r.basePathMappingManager.BuildCustomDomainURL(customDomainName)
 
-			// Only do the full sync when gateways were added or removed.
-			// When only routes changed within existing gateways, mappings are unchanged.
+			// Sync when anything could leave a gateway unmapped: gateways added or
+			// removed, the custom domain changed (e.g. DNS switched on for an
+			// existing environment), or a gateway has no mapping in state. Read()
+			// refreshes base_path_mappings from AWS, so a mapping that was never
+			// created or was deleted shows up here as missing. Skipping the sync
+			// in those cases left the custom domain answering 403 for every route.
 			gatewayStructureChanged := len(gatewaysToCreate) > 0 || len(gatewaysToDelete) > 0
-			if gatewayStructureChanged {
+			oldCustomDomainName := ""
+			if !state.CustomDomainName.IsNull() && !state.CustomDomainName.IsUnknown() {
+				oldCustomDomainName = state.CustomDomainName.ValueString()
+			}
+			customDomainChanged := customDomainName != oldCustomDomainName
+			mappingsMissing := false
+			for gateway := range gatewayIDs {
+				if _, exists := oldBasePathMappings[gateway]; !exists {
+					mappingsMissing = true
+					break
+				}
+			}
+			if gatewayStructureChanged || customDomainChanged || mappingsMissing {
 				utils.Info(ctx, "Syncing base path mappings for custom domain", map[string]interface{}{
-					"custom_domain_name": customDomainName,
-					"gateway_count":      len(gatewayIDs),
-					"gateways_created":   gatewaysToCreate,
-					"gateways_deleted":   gatewaysToDelete,
+					"custom_domain_name":    customDomainName,
+					"gateway_count":         len(gatewayIDs),
+					"gateways_created":      gatewaysToCreate,
+					"gateways_deleted":      gatewaysToDelete,
+					"custom_domain_changed": customDomainChanged,
+					"mappings_missing":      mappingsMissing,
 				})
 
 				// Validate custom domain exists
@@ -3256,19 +3276,15 @@ func (r *dispatcherResource) Update(ctx context.Context, req resource.UpdateRequ
 					)
 				}
 
-				// Store successful mappings
-				for gateway := range gatewayIDs {
-					basePathMappings[gateway] = gateway
-				}
-
-				// Update mappings with actual results
+				// Record only the mappings that were actually synced, so a failure
+				// leaves the gateway missing from state and the next apply retries.
 				if mappings != nil {
 					for basePath := range mappings {
 						basePathMappings[basePath] = basePath
 					}
 				}
 			} else {
-				// No gateway structure change — carry forward existing mappings
+				// Every gateway is already mapped on this domain — carry the mappings forward
 				for gateway := range gatewayIDs {
 					basePathMappings[gateway] = gateway
 				}
